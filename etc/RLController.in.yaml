@@ -1,0 +1,72 @@
+---
+# RLController FSM Configuration
+
+# If true, the FSM transitions are managed by an external tool
+Managed: false
+# If true and the FSM is self-managed, transitions should be triggered
+StepByStep: false
+# Change idle behaviour, if true the state is kept until transition,
+# otherwise the FSM holds the last state until transition
+IdleKeepState: true
+# Where to look for state libraries
+StatesLibraries:
+- "@MC_STATES_DEFAULT_RUNTIME_INSTALL_PREFIX@"
+- "@MC_STATES_RUNTIME_INSTALL_PREFIX@"
+# Where to look for state files
+StatesFiles:
+- "@MC_STATES_DEFAULT_RUNTIME_INSTALL_PREFIX@/data"
+- "@MC_STATES_RUNTIME_INSTALL_PREFIX@/data"
+# If true, state factory will be more verbose
+VerboseStateFactory: false
+
+# Robot and environment setup
+robots:
+  ground:
+    module: "env/ground"
+
+# Basic constraints
+constraints:
+  - type: "contact"
+  - type: "dynamics"
+    damper: [0.1, 0.01, 0.5]
+  - type: "compoundJoint"
+
+# Initial contacts (both feet on ground)
+contacts:
+  - r1: "h1"
+    r2: "ground" 
+    r1Surface: "LeftFootCenter"
+    r2Surface: "AllGround"
+  - r1: "h1"
+    r2: "ground"
+    r1Surface: "RightFootCenter" 
+    r2Surface: "AllGround"
+
+# H1 robot specific settings
+h1:
+  posture:
+    stiffness: 1.0
+    weight: 10.0
+
+# RL Controller specific configuration
+policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
+
+# State definitions
+states:
+  RLExecution:
+    # Enable timing logs for performance monitoring
+    log_timing: true
+    timing_log_interval: 1000
+    
+    # Impedance control parameters (optional - can override defaults)
+    # kp: [200, 200, 200, 150, 100, 200, 200, 200, 150, 100]  # Position gains
+    # kd: [10, 10, 10, 8, 5, 10, 10, 10, 8, 5]                # Velocity gains
+
+# Transition from initial state to RL execution
+transitions:
+# - [RLController_Initial, OK, RLExecution, Strict]
+- [RLExecution, OK, RLExecution, Strict]
+
+# Start with initial state
+# init: "RLController_Initial" 
+init: "RLExecution" 
