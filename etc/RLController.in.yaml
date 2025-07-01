@@ -50,6 +50,7 @@ h1:
 
 # RL Controller specific configuration
 policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
+use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
 
 # State definitions
 states:

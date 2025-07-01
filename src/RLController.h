@@ -6,12 +6,17 @@
 #include "RLPolicyInterface.h"
 #include <memory>
 #include <Eigen/Dense>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
 #include "api.h"
 
 struct RLController : public mc_control::fsm::Controller
 {
   RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
                const mc_rtc::Configuration & config);
+  ~RLController();
   bool run() override;
 
   void reset(const mc_control::ControllerResetData & reset_data) override;
@@ -28,12 +33,35 @@ struct RLController : public mc_control::fsm::Controller
   // Past action for observation (size 19)
   Eigen::VectorXd pastAction_;
   
-  Eigen::VectorXd kp_;  // Position gains (19 joints)
-  Eigen::VectorXd kd_;  // Velocity gains (19 joints)
+  Eigen::VectorXd kp_;
+  Eigen::VectorXd kd_;
+  
+  // threading
+  std::unique_ptr<std::thread> inferenceThread_;
+  std::mutex actionMutex_;
+  std::mutex observationMutex_;
+  std::condition_variable inferenceCondition_;
+  std::atomic<bool> shouldStopInference_;
+  std::atomic<bool> newObservationAvailable_;
+  std::atomic<bool> newActionAvailable_;
+  
+  Eigen::VectorXd currentObservation_;   // Protected by observationMutex_
+  Eigen::VectorXd currentAction_;        // Protected by actionMutex_
+  Eigen::VectorXd latestAction_;         // current action being used by control loop
+  
+  bool useAsyncInference_;
   
   Eigen::VectorXd getCurrentObservation();
   void applyAction(const Eigen::VectorXd & action);
   
+  // Threading
+  void startInferenceThread();
+  void stopInferenceThread();
+  void inferenceThreadFunction();
+  void updateObservationForInference();
+  Eigen::VectorXd getLatestAction();
+  
+  // reordering methods
   Eigen::VectorXd reorderObservationToManiskill(const Eigen::VectorXd & obs);
   Eigen::VectorXd reorderActionFromManiskill(const Eigen::VectorXd & action);
   

@@ -18,6 +18,7 @@ RLPolicyInterface::RLPolicyInterface()
 
 RLPolicyInterface::~RLPolicyInterface()
 {
+  //TODO : cleanup any loaded models here
 }
 
 void RLPolicyInterface::loadPolicy(const std::string & path)
@@ -26,7 +27,7 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
   {
     mc_rtc::log::info("Loading RL policy from: {}", path);
     
-    // file verification
+#ifdef USE_ONNX
     if(path.size() >= 5 && path.substr(path.size() - 5) == ".onnx")
     {
       if(!std::filesystem::exists(path))
@@ -44,7 +45,7 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
       sessionOptions.SetIntraOpNumThreads(1);
       sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
       
-      // Try to use CUDA if available
+      // try CUDA if available
       try 
       {
         OrtCUDAProviderOptions cuda_options{};
@@ -96,7 +97,6 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
       auto outputTensorInfo = outputTypeInfo.GetTensorTypeAndShapeInfo();
       outputShape_ = outputTensorInfo.GetShape();
       
-      // dimension verification
       if(inputShape_.size() != 2 || inputShape_[1] != getObservationSize())
       {
         mc_rtc::log::error("Input shape mismatch: expected [batch, {}], got [{}, {}]", 
@@ -122,7 +122,7 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
       mc_rtc::log::info("  Output name: {}", outputNames_[0]);
       mc_rtc::log::info("  Output shape: [{}, {}]", outputShape_[0], outputShape_[1]);
       
-      // Test the model with dummy input
+      // test
       std::vector<float> testInput(getObservationSize(), 0.0f);
       std::vector<int64_t> testInputShape = {1, getObservationSize()};
       
@@ -146,15 +146,12 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
                           getObservationSize(), getActionSize());
       return;
     }
-    
-    mc_rtc::log::warning("ONNX not available or unsupported file format");
-    isLoaded_ = false;
+#endif
+    isLoaded_ = true;
   }
   catch(const std::exception & e)
   {
-    mc_rtc::log::error("Failed to load policy: {}", e.what());
-    mc_rtc::log::warning("Falling back to dummy policy");
-    isLoaded_ = true;
+    mc_rtc::log::error_and_throw("Failed to load policy: {}", e.what());
   }
 }
 
@@ -173,7 +170,7 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
     return Eigen::VectorXd::Zero(19);
   }
   
-  // If we have a real ONNX policy loaded, use it
+#ifdef USE_ONNX
   if(!policyPath_.empty() && policyPath_.size() >= 5)
   {
     std::string ext = policyPath_.substr(policyPath_.size() - 5);
@@ -185,15 +182,15 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
       }
       catch(const std::exception & e)
       {
-        mc_rtc::log::error("ONNX inference failed: {}", e.what());
+        mc_rtc::log::error_and_throw("ONNX inference failed: {}", e.what());
       }
     }
   }
-  
-  // returns 0s
-  return Eigen::VectorXd::Zero(35);
+#endif
+  return Eigen::VectorXd::Zero(19);
 }
 
+#ifdef USE_ONNX
 Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & observation)
 {
   std::vector<float> inputData(observation.size());
@@ -206,7 +203,7 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
   Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
     *memoryInfo_, inputData.data(), inputData.size(),
     inputShape.data(), inputShape.size());
-  
+    
   auto outputTensors = onnxSession_->Run(
     Ort::RunOptions{nullptr}, 
     inputNamePtrs_.data(), &inputTensor, 1,
@@ -233,3 +230,4 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
   
   return action;
 }
+#endif 

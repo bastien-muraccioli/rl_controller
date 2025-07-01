@@ -63,9 +63,20 @@ bool RLExecution::run(mc_control::fsm::Controller & ctl_)
   
   try
   {
-    Eigen::VectorXd observation = ctl.getCurrentObservation();
+    Eigen::VectorXd action;
     
-    Eigen::VectorXd action = ctl.rlPolicy_->predict(observation);
+    if(ctl.useAsyncInference_)
+    {
+      ctl.updateObservationForInference();
+      action = ctl.getLatestAction();
+    }
+    else
+    {
+      
+      Eigen::VectorXd observation = ctl.getCurrentObservation();
+      
+      action = ctl.rlPolicy_->predict(observation);
+    }
     
     ctl.applyAction(action);
     
@@ -80,19 +91,12 @@ bool RLExecution::run(mc_control::fsm::Controller & ctl_)
         std::chrono::high_resolution_clock::now().time_since_epoch()).count();
       double avgFreq = stepCount_ / (currentTime - startTime_);
       
-      mc_rtc::log::info("RLExecution Step {}: inference time = {} μs, avg freq = {:.1f} Hz", 
-                        stepCount_, duration.count(), avgFreq);
+      const char* mode = ctl.useAsyncInference_ ? "async" : "sync";
+      mc_rtc::log::info("RLExecution Step {} ({}): control loop time = {} μs, avg freq = {:.1f} Hz", 
+                        stepCount_, mode, duration.count(), avgFreq);
                         
-      mc_rtc::log::info("Observation: min={:.3f}, max={:.3f}, norm={:.3f}", 
-                        observation.minCoeff(), observation.maxCoeff(), observation.norm());
       mc_rtc::log::info("Action: min={:.3f}, max={:.3f}, norm={:.3f}", 
                         action.minCoeff(), action.maxCoeff(), action.norm());
-                        
-      mc_rtc::log::info("Obs breakdown - BaseAngVel: [{:.3f}, {:.3f}, {:.3f}], Roll: {:.3f}, Pitch: {:.3f}",
-                        observation(0), observation(1), observation(2), observation(3), observation(4));
-      mc_rtc::log::info("JointPos: [{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}]",
-                        observation(5), observation(6), observation(7), observation(8), observation(9),
-                        observation(10), observation(11), observation(12), observation(13), observation(14));
     }
   }
   catch(const std::exception & e)
