@@ -1,6 +1,6 @@
 ---
 # RLController FSM Configuration
-
+# Backend: TVM
 # If true, the FSM transitions are managed by an external tool
 Managed: false
 # If true and the FSM is self-managed, transitions should be triggered
@@ -26,21 +26,21 @@ robots:
 
 # Basic constraints
 constraints:
-  - type: "contact"
+  # - type: "contact"
   - type: "dynamics"
     damper: [0.1, 0.01, 0.5]
-  - type: "compoundJoint"
+  # - type: "compoundJoint"
 
 # Initial contacts (both feet on ground)
-contacts:
-  - r1: "h1"
-    r2: "ground" 
-    r1Surface: "LeftFootCenter"
-    r2Surface: "AllGround"
-  - r1: "h1"
-    r2: "ground"
-    r1Surface: "RightFootCenter" 
-    r2Surface: "AllGround"
+# contacts:
+#   - r1: "h1"
+#     r2: "ground" 
+#     r1Surface: "LeftFootCenter"
+#     r2Surface: "AllGround"
+#   - r1: "h1"
+#     r2: "ground"
+#     r1Surface: "RightFootCenter" 
+#     r2Surface: "AllGround"
 
 # H1 robot specific settings
 h1:
@@ -71,3 +71,22 @@ transitions:
 # Start with initial state
 # init: "RLController_Initial" 
 init: "RLExecution" 
+
+ObserverPipelines:
+- name: MainPipeline                     # - Create a new pipeline
+  gui: true                              #   diplay the pipeline in the GUI (default = false)
+  log: true                              #   log observers (default)
+
+  observers:                             #   declare which observers to use
+  - type: Encoder                        # - Use an EncoderObserver
+    config:                              #
+      position: encoderValues            #    - Sets joint position from encoder sensor values (default)
+      velocity: encoderFiniteDifferences #    - Computes joint velocities by finite differences  (default)
+                                         # We now have the estimation of each joint position and velocity and the corresponding
+                                         # body positions and velocities, but we are still missing the floating base
+
+  - type: BodySensor                     # - Use a BodySensor observer
+    update: false                        #   Do not update the real robot state
+    gui: false                           #   Do not display in the gui
+    config:                              #
+      bodySensor: FloatingBase

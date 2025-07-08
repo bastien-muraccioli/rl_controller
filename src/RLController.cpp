@@ -8,6 +8,7 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
                            const mc_rtc::Configuration & config)
 : mc_control::fsm::Controller(rm, dt, config)
 {
+  datastore().make<std::string>("ControlMode", "Torque");
   mc_rtc::log::success("RLController init");
 }
 
@@ -19,7 +20,8 @@ RLController::~RLController()
 
 bool RLController::run()
 {
-  return mc_control::fsm::Controller::run();
+  // return mc_control::fsm::Controller::run();
+  return mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
 }
 
 void RLController::reset(const mc_control::ControllerResetData & reset_data)
@@ -267,10 +269,10 @@ void RLController::applyAction(const Eigen::VectorXd & action)
   Eigen::VectorXd desiredTorques = computeImpedanceTorques(reorderedAction, currentPos, currentVel);
   
   std::map<std::string, std::vector<double>> torqueMap;
-  for(size_t i = 0; i < allJoints_.size(); ++i)
+  for(size_t i = 0; i < 10; ++i)
   {
-    if(i >= allJoints_.size()) {
-      mc_rtc::log::error("Trying to access allJoints_[{}] but size is {}", i, allJoints_.size());
+    if(i >= 10) {
+      mc_rtc::log::error("Trying to access legjoint[{}] but size is {}", i, 10);
       break;
     }
     mc_rtc::log::info("Adding torque for joint {} ({}): {}", i, allJoints_[i], desiredTorques(i));
