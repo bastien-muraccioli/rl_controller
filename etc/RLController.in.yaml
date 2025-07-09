@@ -1,6 +1,4 @@
 ---
-# RLController FSM Configuration
-# Backend: TVM
 # If true, the FSM transitions are managed by an external tool
 Managed: false
 # If true and the FSM is self-managed, transitions should be triggered
@@ -19,18 +17,10 @@ StatesFiles:
 # If true, state factory will be more verbose
 VerboseStateFactory: false
 
-# Robot and environment setup
-robots:
-  ground:
-    module: "env/ground"
-
-states: {}
-
-transitions:
-- [RLController_Initial, OK, RLController_Initial]
-
-# Start with initial state
-init: "RLController_Initial" 
+# Collision constraint
+collisions:
+- type: collision
+  useMinimal: true
 
 ObserverPipelines:
   name: "Pipeline"
@@ -39,10 +29,30 @@ ObserverPipelines:
     - type: Encoder
       config:
           velocity: encoderVelocities
+    
     - type: Attitude
       required: true
       update: true
+
+    - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
+      update: true                         #   update the real robot instance from its results
+      gui: true                            #   Displays the estimated velocity as an arrow (default)
+      config:
+        imuBodySensor: Accelerometer
+
     - type: BodySensor
-      update: false
+      update: true
       config:
         bodySensor: FloatingBase
+
+robots:
+  ground:
+    module: env/ground
+
+states: {}
+
+transitions:
+  - [RLController_Initial, OK, RLController_Initial]
+
+# Start with initial state
+init: "RLController_Initial" 

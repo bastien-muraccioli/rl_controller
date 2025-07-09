@@ -4,7 +4,6 @@
 
 void RLController_Initial::configure(const mc_rtc::Configuration & config)
 {
-  // No configuration needed for initial state
 }
 
 void RLController_Initial::start(mc_control::fsm::Controller & ctl)
@@ -14,9 +13,8 @@ void RLController_Initial::start(mc_control::fsm::Controller & ctl)
 
 bool RLController_Initial::run(mc_control::fsm::Controller & ctl)
 {
-  // Immediately transition to RLExecution state
-  output("OK");
-  return true;
+  // output("OK");
+  return false;
 }
 
 void RLController_Initial::teardown(mc_control::fsm::Controller & ctl)
