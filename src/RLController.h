@@ -15,6 +15,7 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   void reset(const mc_control::ControllerResetData & reset_data) override;
   
+  std::unique_ptr<mc_solver::ContactConstraint> contactConstraintTest;
   // std::unique_ptr<RLPolicyInterface> rlPolicy_;
   std::shared_ptr<mc_tasks::TorqueTask> torqueTask;
   
