@@ -12,11 +12,35 @@ void RLController_Initial::start(mc_control::fsm::Controller & ctl)
   mc_rtc::log::info("RLController_Initial state started");
 }
 
-bool RLController_Initial::run(mc_control::fsm::Controller & ctl)
+bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
 {
-  // Immediately transition to RLExecution state
-  output("OK");
-  return true;
+  auto & ctl = static_cast<RLController &>(ctl_);
+  if(ctl.robot().encoderVelocities().empty())
+  {
+    return false;
+  }
+  // output("OK");
+  // ctl.torqueTarget = ctl.convertPosToTorque(ctl.postureTarget);
+  if(isTorqueTask)
+  {
+    ctl.torqueTask->target(ctl.convertPosToTorque(ctl.postureTarget));
+  }
+  else
+  {
+    if(ctl.FSMPostureTask->eval().norm() < 0.001)
+    {
+      ctl.FSMPostureTask->weight(0.0);
+      ctl.torqueTask->weight(1000.0);
+      auto target = ctl.convertPosToTorque(ctl.postureTarget);
+      mc_rtc::log::info("RLController_Initial: Giving a torque target to TorqueTask");
+      ctl.torqueTask->target(target);
+      mc_rtc::log::info("RLController_Initial: Switching to TorqueTask");
+      ctl.solver().addTask(ctl.torqueTask);
+      isTorqueTask = true;
+    }
+  }
+  
+  return false;
 }
 
 void RLController_Initial::teardown(mc_control::fsm::Controller & ctl)

@@ -11,4 +11,6 @@ struct MC_CONTROL_FSM_STATE_DLLAPI RLController_Initial : mc_control::fsm::State
   bool run(mc_control::fsm::Controller & ctl) override;
 
   void teardown(mc_control::fsm::Controller & ctl) override;
+
+  bool isTorqueTask = false;
 };

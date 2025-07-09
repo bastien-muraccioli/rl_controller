@@ -2,8 +2,7 @@
 
 #include <mc_control/fsm/Controller.h>
 #include <mc_tasks/TorqueTask.h>
-#include <mc_tasks/CompliantPostureTask.h>
-
+#include <mc_tasks/PostureTask.h>
 #include "api.h"
 
 struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
@@ -18,58 +17,18 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   std::unique_ptr<mc_solver::ContactConstraint> contactConstraintTest;
   // std::unique_ptr<RLPolicyInterface> rlPolicy_;
   std::shared_ptr<mc_tasks::TorqueTask> torqueTask;
-  
-  // std::vector<std::string> allJoints_;      // All 19 joints in mc_rtc order
-  // std::vector<std::string> legJoints_;      // 10 leg joints only
-  
-  // // std::vector<int> maniskillToMcRtcIdx_;    // Action reordering: Maniskill -> mc_rtc
-  // // std::vector<int> mcRtcToManiskillIdx_;    // Observation reordering: mc_rtc -> Maniskill
-  
-  // // // Past action for observation (size 19)
-  // // Eigen::VectorXd pastAction_;
-  
-  // Eigen::VectorXd kp_;
-  // Eigen::VectorXd kd_;
-  
-  // // threading
-  // std::unique_ptr<std::thread> inferenceThread_;
-  // std::mutex actionMutex_;
-  // std::mutex observationMutex_;
-  // std::condition_variable inferenceCondition_;
-  // std::atomic<bool> shouldStopInference_;
-  // std::atomic<bool> newObservationAvailable_;
-  // std::atomic<bool> newActionAvailable_;
-  
-  // Eigen::VectorXd currentObservation_;   // Protected by observationMutex_
-  // Eigen::VectorXd currentAction_;        // Protected by actionMutex_
-  // Eigen::VectorXd latestAction_;         // current action being used by control loop
-  
-  // bool useAsyncInference_;
-  
-  // Eigen::VectorXd getCurrentObservation();
-  // void applyAction(const Eigen::VectorXd & action);
-  
-  // // Threading
-  // void startInferenceThread();
-  // void stopInferenceThread();
-  // void inferenceThreadFunction();
-  // void updateObservationForInference();
-  // Eigen::VectorXd getLatestAction();
-  
-  // // reordering methods
-  // Eigen::VectorXd reorderObservationToManiskill(const Eigen::VectorXd & obs);
-  // Eigen::VectorXd reorderActionFromManiskill(const Eigen::VectorXd & action);
-  
-  // Eigen::VectorXd computeImpedanceTorques(const Eigen::VectorXd & desiredPos, 
-  //                                        const Eigen::VectorXd & currentPos,
-  //                                        const Eigen::VectorXd & currentVel);
+  std::shared_ptr<mc_tasks::PostureTask> FSMPostureTask;
 
-  // void supported_robots(std::vector<std::string> & out) const override 
-  // { 
-  //   out = {"h1"}; 
-  // }
+  std::vector<std::vector<double>> desiredPosture;
+  std::vector<std::string> jointNames;
+  std::map<std::string, std::vector<double>> postureTarget;
+  // std::map<std::string, std::vector<double>> torqueTarget;
+
+  double kp = 100.0;  // Default stiffness
+  double kd = 20.0;   // Default damping
+  size_t dofNumber = 0; // Number of degrees of freedom in the robot
+
+  std::map<std::string, std::vector<double>> convertPosToTorque(std::map<std::string, std::vector<double>> & posTarget);
 
 private:
-  // void initializeAllJoints();
-  // void initializeImpedanceGains();
 }; 
