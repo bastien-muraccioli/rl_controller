@@ -8,6 +8,17 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
                            const mc_rtc::Configuration & config)
 : mc_control::fsm::Controller(rm, dt, config)
 {
+  // Add constraints
+  // contactConstraintTest =std::make_unique<mc_solver::ContactConstraint>(timeStep, mc_solver::ContactConstraint::ContactType::Acceleration);
+  // solver().addConstraintSet(contactConstraintTest);
+
+  // selfCollisionConstraint->setCollisionsDampers(solver(), {1.8, 70.0});
+  
+  dynamicsConstraint = mc_rtc::unique_ptr<mc_solver::DynamicsConstraint>(
+      new mc_solver::DynamicsConstraint(
+          robots(), 0, {0.1, 0.01, 0.0, 1.8, 70.0}, 0.9, true));
+  solver().addConstraintSet(dynamicsConstraint);
+  
   datastore().make<std::string>("ControlMode", "Torque");
   mc_rtc::log::success("RLController init");
 }
