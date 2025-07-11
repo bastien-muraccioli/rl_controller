@@ -6,7 +6,7 @@
 
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
                            const mc_rtc::Configuration & config)
-: mc_control::fsm::Controller(rm, dt, config)
+: mc_control::fsm::Controller(rm, dt, config, Backend::TVM)
 {
   // Add constraints
   // contactConstraintTest =std::make_unique<mc_solver::ContactConstraint>(timeStep, mc_solver::ContactConstraint::ContactType::Acceleration);
