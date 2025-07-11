@@ -71,18 +71,21 @@ bool RLController::run()
 std::map<std::string, std::vector<double>> RLController::convertPosToTorque(std::map<std::string, std::vector<double>> & posTarget)
 {
   std::map<std::string, std::vector<double>> tauTarget;
-  Eigen::VectorXd currentPos_w_floatingBase(dofNumber+7), currentVel_w_floatingBase(dofNumber+7);
+  Eigen::VectorXd currentPos_w_floatingBase(dofNumber+7), currentVel_w_floatingBase(dofNumber+7), currentTorque_w_floatingBase(dofNumber+7);
 
   rbd::paramToVector(robot().mbc().q, currentPos_w_floatingBase);
   rbd::paramToVector(robot().mbc().alpha, currentVel_w_floatingBase);
+  rbd::paramToVector(robot().mbc().jointTorque, currentTorque_w_floatingBase);
 
   std::map<std::string, double> currentPosMap;
   std::map<std::string, double> currentVelMap;
+  std::map<std::string, double> currentTorqueMap;
   size_t i = 7; // Extract the first 6 elements for floating base + 1 Root joint
   for (const auto &joint_name : jointNames)
   {
     currentPosMap[joint_name] = currentPos_w_floatingBase[i];
     currentVelMap[joint_name] = currentVel_w_floatingBase[i];
+    currentTorqueMap[joint_name] = currentTorque_w_floatingBase[i];
     // mc_rtc::log::info("[RLController] Joint {}: current pos {}; desired pos {}", joint_name, currentPosMap[joint_name], posTarget[joint_name][0]);
     i++;
   }
@@ -90,9 +93,9 @@ std::map<std::string, std::vector<double>> RLController::convertPosToTorque(std:
   // Based on posTarget, create tauTarget for each joint with impedance control
   for (const auto &joint_name : jointNames)
   {
-    mc_rtc::log::info("[RLController] {} τ = kp * (q_desired: {} - q_current {}) + kd * (- dq_current {})", joint_name, posTarget[joint_name][0], currentPosMap[joint_name], currentVelMap[joint_name]);
+    mc_rtc::log::info("[RLController] {} τ = kp * (q_desired: {} - q_current {}) + kd * (- dq_current {}) + tau_current {}", joint_name, posTarget[joint_name][0], currentPosMap[joint_name], currentVelMap[joint_name], currentTorqueMap[joint_name]);
     // Impedance control: τ = kp * (q_desired - q_current) + kd * (0 - dq_current)
-    double torque = kp * (posTarget[joint_name][0] - currentPosMap[joint_name]) + kd * (-currentVelMap[joint_name]);
+    double torque = (kp * (posTarget[joint_name][0] - currentPosMap[joint_name]) + kd * (-currentVelMap[joint_name])) + currentTorqueMap[joint_name];
     mc_rtc::log::info("[RLController] {} τ = {} Nm", joint_name, torque);
     tauTarget[joint_name] = {torque};
   }
