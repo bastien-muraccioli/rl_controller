@@ -9,6 +9,8 @@ void RLController_Initial::configure(const mc_rtc::Configuration & config)
 
 void RLController_Initial::start(mc_control::fsm::Controller & ctl)
 {
+  auto & ctl_ = static_cast<RLController &>(ctl);
+  postureTarget = ctl_.postureTarget;
   mc_rtc::log::info("RLController_Initial state started");
 }
 
@@ -17,13 +19,15 @@ bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
   auto & ctl = static_cast<RLController &>(ctl_);
   if(ctl.robot().encoderVelocities().empty())
   {
+    mc_rtc::log::warning("[RLController_Initial] No encoder velocities available, skipping residual computation");
     return false;
   }
   // output("OK");
   // ctl.torqueTarget = ctl.convertPosToTorque(ctl.postureTarget);
   if(isTorqueTask)
   {
-    ctl.torqueTask->target(ctl.convertPosToTorque(ctl.postureTarget));
+    auto target = ctl.convertPosToTorque(postureTarget);
+    ctl.torqueTask->target(target);
   }
   else
   {
@@ -31,7 +35,7 @@ bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
     {
       ctl.FSMPostureTask->weight(0.0);
       ctl.torqueTask->weight(1000.0);
-      auto target = ctl.convertPosToTorque(ctl.postureTarget);
+      auto target = ctl.convertPosToTorque(postureTarget);
       mc_rtc::log::info("RLController_Initial: Giving a torque target to TorqueTask");
       ctl.torqueTask->target(target);
       mc_rtc::log::info("RLController_Initial: Switching to TorqueTask");

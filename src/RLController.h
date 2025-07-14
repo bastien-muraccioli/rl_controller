@@ -24,8 +24,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   std::map<std::string, std::vector<double>> postureTarget;
   // std::map<std::string, std::vector<double>> torqueTarget;
 
-  double kp = 100.0;  // Default stiffness
-  double kd = 20.0;   // Default damping
+  std::map<std::string, double> kp;
+  std::map<std::string, double> kd;
   size_t dofNumber = 0; // Number of degrees of freedom in the robot
 
   std::map<std::string, std::vector<double>> convertPosToTorque(std::map<std::string, std::vector<double>> & posTarget);
