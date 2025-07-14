@@ -72,6 +72,7 @@ bool RLController::run()
     return mc_control::fsm::Controller::run(
         mc_solver::FeedbackType::ClosedLoopIntegrateReal);
   }
+  // return mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
 }
 
 std::map<std::string, std::vector<double>> RLController::convertPosToTorque(std::map<std::string, std::vector<double>> & posTarget)
@@ -106,7 +107,7 @@ std::map<std::string, std::vector<double>> RLController::convertPosToTorque(std:
     // mc_rtc::log::info("[RLController] {} τ = kp * (q_desired: {} - q_current {}) + kd * (- dq_current {}) + tau_current {}", joint_name, posTarget[joint_name][0], currentPosMap[joint_name], currentVelMap[joint_name], currentTorqueMap[joint_name]);
     // Impedance control: τ = kp * (q_desired - q_current) + kd * (0 - dq_current)
     // double torque = (kp * (posTarget[joint_name][0] - currentPosMap[joint_name]) + kd * (-currentVelMap[joint_name]))*timeStep + currentTorqueMap[joint_name];
-    double torque = (kp[joint_name] * (posTarget[joint_name][0] - currentPosMap[joint_name]) + kd[joint_name] * (-currentVelMap[joint_name]));
+    double torque = (kp[joint_name] * (posTarget.at(joint_name)[0] - currentPosMap[joint_name]) + kd[joint_name] * (-currentVelMap[joint_name]));
     mc_rtc::log::info("[RLController] {} τ = {} Nm", joint_name, torque);
     tauTarget[joint_name] = {torque};
     // tauTarget[joint_name] = {currentTorqueMap[joint_name]};
