@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <mc_rtc/logging.h>
 
+
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
                            const mc_rtc::Configuration & config)
 : mc_control::fsm::Controller(rm, dt, config, Backend::TVM)
@@ -36,9 +37,11 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   // currentVel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
 
   ddot_qp = Eigen::VectorXd::Zero(dofNumber); // Desired acceleration in the QP solver
-  // ddot_qp_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Desired acceleration in the QP solver with floating base
+  ddot_qp_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Desired acceleration in the QP solver with floating base
   q_cmd = Eigen::VectorXd::Zero(dofNumber); // The commended position send to the internal PD of the robot
-  // q_cmd_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // The commended position send to the internal PD of the robot with floating base
+  q_cmd_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // The commended position send to the internal PD of the robot with floating base
+  q_cmd_after_pd = Eigen::VectorXd::Zero(dofNumber); // The commended position after PD control
+  q_cmd_after_pd_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // The commended position after PD control with floating base
   
 
 
@@ -99,11 +102,15 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   // logger().addLogEntry("RLController_q_cmd_w_floatingBase", [this]()
   // { return q_cmd_w_floatingBase; });
   logger().addLogEntry("RLController_ddot_qp", [this]() { return ddot_qp; });
-  // logger().addLogEntry("RLController_ddot_qp_w_floatingBase", [this]()
-  // { return ddot_qp_w_floatingBase; });
+  logger().addLogEntry("RLController_ddot_qp_w_floatingBase", [this]()
+  { return ddot_qp_w_floatingBase; });
 
-  datastore().make<std::string>("ControlMode", "Torque");
-  // datastore().make<std::string>("ControlMode", "Position");
+  logger().addLogEntry("RLController_q_cmd_after_pd", [this]() { return q_cmd_after_pd; });
+  logger().addLogEntry("RLController_q_cmd_after_pd_w_floatingBase", [this]()
+  { return q_cmd_after_pd_w_floatingBase; });
+
+  // datastore().make<std::string>("ControlMode", "Torque");
+  datastore().make<std::string>("ControlMode", "Position");
   mc_rtc::log::success("[RLController] RLController init");
 }
 
@@ -112,16 +119,16 @@ bool RLController::run()
   // Update the solver depending on the control mode
   auto ctrl_mode = datastore().get<std::string>("ControlMode");
   if (ctrl_mode.compare("Position") == 0) {
-    // auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
-    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoop);
+    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
+    // auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoop);
     
+    rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
+    ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
     // rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
-    // ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
-    rbd::paramToVector(robot().mbc().alphaD, ddot_qp);
 
-    rbd::ForwardDynamics fd(realRobot().mb());
-    fd.computeH(realRobot().mb(), realRobot().mbc());
-    fd.computeC(realRobot().mb(), realRobot().mbc());
+    rbd::ForwardDynamics fd(robot().mb());
+    fd.computeH(robot().mb(), robot().mbc());
+    fd.computeC(robot().mb(), robot().mbc());
     Eigen::MatrixXd M_w_floatingBase = fd.H();
     Eigen::VectorXd Cg_w_floatingBase = fd.C();
     Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
@@ -129,25 +136,28 @@ bool RLController::run()
 
     Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
 
-    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // PD control to get the commanded position
 
-    // q_cmd_w_floatingBase = currentPos_w_floatingBase;
-    // q_cmd_w_floatingBase.tail(dofNumber) = q_cmd; // Copy joint
+
+    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
+
+    q_cmd_after_pd = kd_vector*(currentPos - q_cmd) - kd_vector*currentVel; // PD control to get the commanded position after PD control
+    
+    rbd::paramToVector(robot().mbc().q, q_cmd_w_floatingBase);
+    q_cmd_w_floatingBase.tail(dofNumber) = q_cmd; // Copy joint
 
     // Update the reference position in the robot's mbc
     // rbd::vectorToParam(q_cmd_w_floatingBase, realRobot().mbc().q);
     // rbd::vectorToParam(q_cmd_w_floatingBase, robot().mbc().q);
-    rbd::vectorToParam(q_cmd, realRobot().mbc().q);
+    // rbd::vectorToParam(q_cmd, realRobot().mbc().q);
+    rbd::vectorToParam(q_cmd_w_floatingBase, robot().mbc().q);
+
 
     return run;
 
-  } else {
-    return mc_control::fsm::Controller::run(
-        mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-      // return mc_control::fsm::Controller::run(
-      //   mc_solver::FeedbackType::ClosedLoop);
-  }
-  // return mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
+  } 
+  return mc_control::fsm::Controller::run(
+      mc_solver::FeedbackType::ClosedLoopIntegrateReal);
+
 }
 
 void RLController::reset(const mc_control::ControllerResetData & reset_data)
