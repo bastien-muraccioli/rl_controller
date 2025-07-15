@@ -24,20 +24,26 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   dofNumber = robot().mb().nrDof() - 6; // Remove the floating base part (6 DoF)
   // refAccel = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Task
   refAccel = Eigen::VectorXd::Zero(dofNumber); // TVM
-  refAccel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // refAccel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
   refPos = Eigen::VectorXd::Zero(dofNumber);
   tau_d = Eigen::VectorXd::Zero(dofNumber);
-  tau_d_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // tau_d_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
   kp_vector = Eigen::VectorXd::Zero(dofNumber);
   kd_vector = Eigen::VectorXd::Zero(dofNumber);
   currentPos = Eigen::VectorXd::Zero(dofNumber);
   currentVel = Eigen::VectorXd::Zero(dofNumber);
-  currentPos_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
-  currentVel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // currentPos_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // currentVel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+
+  ddot_qp = Eigen::VectorXd::Zero(dofNumber); // Desired acceleration in the QP solver
+  // ddot_qp_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Desired acceleration in the QP solver with floating base
+  q_cmd = Eigen::VectorXd::Zero(dofNumber); // The commended position send to the internal PD of the robot
+  // q_cmd_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // The commended position send to the internal PD of the robot with floating base
+  
 
 
   similiTorqueTask = std::make_shared<mc_tasks::PostureTask>(solver(), robot().robotIndex(), 0.0, 1000.0);
-  similiTorqueTask->weight(100000.0);
+  similiTorqueTask->weight(1000.0);
   similiTorqueTask->stiffness(0.0);
   similiTorqueTask->damping(0.0);
   similiTorqueTask->refAccel(refAccel);
@@ -75,20 +81,26 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
 
   // add to logger
   logger().addLogEntry("RLController_refAccel", [this]() { return refAccel; });
-  logger().addLogEntry("RLController_refAccel_w_floatingBase", [this]()
-  { return refAccel_w_floatingBase; });
+  // logger().addLogEntry("RLController_refAccel_w_floatingBase", [this]()
+  // { return refAccel_w_floatingBase; });
   logger().addLogEntry("RLController_refPos", [this]() { return refPos; });
   logger().addLogEntry("RLController_tau_d", [this]() { return tau_d; });
-  logger().addLogEntry("RLController_tau_d_w_floatingBase", [this]()
-  { return tau_d_w_floatingBase; });
+  // logger().addLogEntry("RLController_tau_d_w_floatingBase", [this]()
+  // { return tau_d_w_floatingBase; });
   logger().addLogEntry("RLController_kp", [this]() { return kp_vector; });
   logger().addLogEntry("RLController_kd", [this]() { return kd_vector; });
   logger().addLogEntry("RLController_currentPos", [this]() { return currentPos; });
-  logger().addLogEntry("RLController_currentPos_w_floatingBase", [this]()
-  { return currentPos_w_floatingBase; });
+  // logger().addLogEntry("RLController_currentPos_w_floatingBase", [this]()
+  // { return currentPos_w_floatingBase; });
   logger().addLogEntry("RLController_currentVel", [this]() { return currentVel; });
-  logger().addLogEntry("RLController_currentVel_w_floatingBase", [this]()
-  { return currentVel_w_floatingBase; });
+  // logger().addLogEntry("RLController_currentVel_w_floatingBase", [this]()
+  // { return currentVel_w_floatingBase; });
+  logger().addLogEntry("RLController_q_cmd", [this]() { return q_cmd; });
+  // logger().addLogEntry("RLController_q_cmd_w_floatingBase", [this]()
+  // { return q_cmd_w_floatingBase; });
+  logger().addLogEntry("RLController_ddot_qp", [this]() { return ddot_qp; });
+  // logger().addLogEntry("RLController_ddot_qp_w_floatingBase", [this]()
+  // { return ddot_qp_w_floatingBase; });
 
   datastore().make<std::string>("ControlMode", "Torque");
   // datastore().make<std::string>("ControlMode", "Position");
@@ -100,13 +112,40 @@ bool RLController::run()
   // Update the solver depending on the control mode
   auto ctrl_mode = datastore().get<std::string>("ControlMode");
   if (ctrl_mode.compare("Position") == 0) {
-    return mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
+    // auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
+    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoop);
+    
+    // rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
+    // ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
+    rbd::paramToVector(robot().mbc().alphaD, ddot_qp);
+
+    rbd::ForwardDynamics fd(realRobot().mb());
+    fd.computeH(realRobot().mb(), realRobot().mbc());
+    fd.computeC(realRobot().mb(), realRobot().mbc());
+    Eigen::MatrixXd M_w_floatingBase = fd.H();
+    Eigen::VectorXd Cg_w_floatingBase = fd.C();
+    Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
+    Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
+
+    Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
+
+    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // PD control to get the commanded position
+
+    // q_cmd_w_floatingBase = currentPos_w_floatingBase;
+    // q_cmd_w_floatingBase.tail(dofNumber) = q_cmd; // Copy joint
+
+    // Update the reference position in the robot's mbc
+    // rbd::vectorToParam(q_cmd_w_floatingBase, realRobot().mbc().q);
+    // rbd::vectorToParam(q_cmd_w_floatingBase, robot().mbc().q);
+    rbd::vectorToParam(q_cmd, realRobot().mbc().q);
+
+    return run;
+
   } else {
     return mc_control::fsm::Controller::run(
         mc_solver::FeedbackType::ClosedLoopIntegrateReal);
       // return mc_control::fsm::Controller::run(
       //   mc_solver::FeedbackType::ClosedLoop);
-
   }
   // return mc_control::fsm::Controller::run(mc_solver::FeedbackType::OpenLoop);
 }

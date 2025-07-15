@@ -56,11 +56,13 @@ void RLController_Initial::torqueTaskSimulation(mc_control::fsm::Controller & ct
   auto & realRobot = ctl.realRobot(ctl.robots()[0].name());
 
   auto q = realRobot.encoderValues();
-  ctl.currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
-  ctl.currentPos = ctl.currentPos_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
+  ctl.currentPos = Eigen::VectorXd::Map(q.data(), q.size());
+  // ctl.currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
+  // ctl.currentPos = ctl.currentPos_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
   auto vel = realRobot.encoderVelocities();
-  ctl.currentVel_w_floatingBase = Eigen::VectorXd::Map(vel.data(), vel.size());
-  ctl.currentVel = ctl.currentVel_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
+  ctl.currentVel = Eigen::VectorXd::Map(vel.data(), vel.size());
+  // ctl.currentVel_w_floatingBase = Eigen::VectorXd::Map(vel.data(), vel.size());
+  // ctl.currentVel = ctl.currentVel_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
 
   mc_rtc::log::info("[RLController] Current Position: {}", ctl.currentPos);
   mc_rtc::log::info("[RLController] Current Velocity: {}", ctl.currentVel);
@@ -68,20 +70,22 @@ void RLController_Initial::torqueTaskSimulation(mc_control::fsm::Controller & ct
   ctl.tau_d = ctl.kp_vector.cwiseProduct(ctl.refPos - ctl.currentPos) + ctl.kd_vector.cwiseProduct(-ctl.currentVel);
   mc_rtc::log::info("[RLController] tau_d: {}", ctl.tau_d);
 
-  ctl.tau_d_w_floatingBase = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase); // full vector zeroed
-  ctl.tau_d_w_floatingBase.head(ctl.dofNumber) = ctl.tau_d; // copy only joint torques
+  // ctl.tau_d_w_floatingBase = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase); // full vector zeroed
+  // ctl.tau_d_w_floatingBase.head(ctl.dofNumber) = ctl.tau_d; // copy only joint torques
 
 
   // Simulate the torque task by converting the torque target to an acceleration target
   rbd::ForwardDynamics fd(realRobot.mb());
   fd.computeH(realRobot.mb(), realRobot.mbc());
   fd.computeC(realRobot.mb(), realRobot.mbc());
-  Eigen::MatrixXd M = fd.H();
-  Eigen::VectorXd Cg = fd.C();
-  ctl.refAccel_w_floatingBase = M.completeOrthogonalDecomposition().solve(ctl.tau_d_w_floatingBase - Cg);
+  Eigen::MatrixXd M_w_floatingBase = fd.H();
+  Eigen::VectorXd Cg_w_floatingBase = fd.C();
+  Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(ctl.dofNumber, ctl.dofNumber);
+  Eigen::VectorXd Cg = Cg_w_floatingBase.tail(ctl.dofNumber);
+  ctl.refAccel = M.completeOrthogonalDecomposition().solve(ctl.tau_d - Cg);
   // For the TVM backend
-  ctl.refAccel = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase);
-  ctl.refAccel.head(ctl.dofNumber) = ctl.refAccel_w_floatingBase.head(ctl.dofNumber);
+  // ctl.refAccel = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase);
+  // ctl.refAccel.head(ctl.dofNumber) = ctl.refAccel_w_floatingBase.head(ctl.dofNumber);
   // Keep the full vector for Task
   // ctl.refAccel = ctl.refAccel_w_floatingBase; 
 

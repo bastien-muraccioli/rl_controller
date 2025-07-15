@@ -25,14 +25,14 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   std::shared_ptr<mc_tasks::PostureTask> similiTorqueTask;
 
   Eigen::VectorXd refAccel;
-  Eigen::VectorXd refAccel_w_floatingBase;
+  // Eigen::VectorXd refAccel_w_floatingBase;
   Eigen::VectorXd refPos;
   Eigen::VectorXd tau_d;
-  Eigen::VectorXd tau_d_w_floatingBase;
+  // Eigen::VectorXd tau_d_w_floatingBase;
   Eigen::VectorXd currentPos;
-  Eigen::VectorXd currentPos_w_floatingBase;
+  // Eigen::VectorXd currentPos_w_floatingBase;
   Eigen::VectorXd currentVel;
-  Eigen::VectorXd currentVel_w_floatingBase;
+  // Eigen::VectorXd currentVel_w_floatingBase;
 
   std::vector<std::vector<double>> desiredPosture;
   std::vector<std::string> jointNames;
@@ -45,6 +45,12 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   size_t dofNumber_with_floatingBase = 0; // Number of degrees of freedom in the robot
   size_t dofNumber = 0; // Number of degrees of freedom in the robot without floating base
+
+  // For position control
+  Eigen::VectorXd ddot_qp; // Desired acceleration in the QP solver
+  // Eigen::VectorXd ddot_qp_w_floatingBase; // Desired acceleration in the QP solver with floating base
+  Eigen::VectorXd q_cmd; // The commended position send to the internal PD of the robot
+  // Eigen::VectorXd q_cmd_w_floatingBase; // The commended position send to the internal PD of the robot with floating base
 
 private:
 }; 
