@@ -17,10 +17,19 @@ StatesFiles:
 # If true, state factory will be more verbose
 VerboseStateFactory: false
 
-# Collision constraint
-collisions:
-- type: collision
-  useMinimal: true
+constraints:
+#   # - type: contact
+#   # - type: collision
+#   # KinematicsConstraint, i.e. joint limits see equation (3.6) in Joris Vaillant's thesis
+#   #  interaction distance (d_i) safety distance (d_s) damper offset (xi_off)
+#   #  applies to main robot
+  - type: dynamics
+    damper: [0.1, 0.01, 0.5]
+
+# # Collision constraint
+# collisions:
+# - type: collision
+#   useMinimal: true
 
 ObserverPipelines:
   name: "Pipeline"
@@ -30,9 +39,9 @@ ObserverPipelines:
       config:
           velocity: encoderVelocities
     
-    - type: Attitude
-      required: true
-      update: true
+    # - type: Attitude
+    #   required: true
+    #   update: true
 
     # - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
     #   update: true                         #   update the real robot instance from its results

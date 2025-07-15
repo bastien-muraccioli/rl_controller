@@ -19,28 +19,25 @@ bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
   auto & ctl = static_cast<RLController &>(ctl_);
   if(ctl.robot().encoderVelocities().empty())
   {
-    mc_rtc::log::warning("[RLController_Initial] No encoder velocities available, skipping residual computation");
+    mc_rtc::log::warning("[RLController_Initial] No encoder velocities available");
     return false;
   }
   // output("OK");
   // ctl.torqueTarget = ctl.convertPosToTorque(ctl.postureTarget);
   if(isTorqueTask)
   {
-    auto target = ctl.convertPosToTorque(postureTarget);
-    ctl.torqueTask->target(target);
+    // auto target = ctl.convertPosToTorque(postureTarget);
+    // ctl.torqueTask->target(target);
+    torqueTaskSimulation(ctl);
   }
   else
   {
-    if(ctl.FSMPostureTask->eval().norm() < 0.001)
+    if(ctl.FSMPostureTask->eval().norm() < 0.01)
     {
-      ctl.FSMPostureTask->weight(0.0);
-      ctl.torqueTask->weight(1000.0);
-      auto target = ctl.convertPosToTorque(postureTarget);
-      mc_rtc::log::info("RLController_Initial: Giving a torque target to TorqueTask");
-      ctl.torqueTask->target(target);
-      mc_rtc::log::info("RLController_Initial: Switching to TorqueTask");
-      ctl.solver().addTask(ctl.torqueTask);
+      ctl.solver().removeTask(ctl.FSMPostureTask);
       isTorqueTask = true;
+      torqueTaskSimulation(ctl);
+      ctl.solver().addTask(ctl.similiTorqueTask);
     }
   }
   
@@ -50,6 +47,47 @@ bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
 void RLController_Initial::teardown(mc_control::fsm::Controller & ctl)
 {
   mc_rtc::log::info("RLController_Initial state ending");
+}
+
+void RLController_Initial::torqueTaskSimulation(mc_control::fsm::Controller & ctl_)
+{
+  auto & ctl = static_cast<RLController &>(ctl_);
+  auto & robot = ctl.robots()[0];
+  auto & realRobot = ctl.realRobot(ctl.robots()[0].name());
+
+  auto q = realRobot.encoderValues();
+  ctl.currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
+  ctl.currentPos = ctl.currentPos_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
+  auto vel = realRobot.encoderVelocities();
+  ctl.currentVel_w_floatingBase = Eigen::VectorXd::Map(vel.data(), vel.size());
+  ctl.currentVel = ctl.currentVel_w_floatingBase.head(ctl.dofNumber); // Exclude the floating base part
+
+  mc_rtc::log::info("[RLController] Current Position: {}", ctl.currentPos);
+  mc_rtc::log::info("[RLController] Current Velocity: {}", ctl.currentVel);
+
+  ctl.tau_d = ctl.kp_vector.cwiseProduct(ctl.refPos - ctl.currentPos) + ctl.kd_vector.cwiseProduct(-ctl.currentVel);
+  mc_rtc::log::info("[RLController] tau_d: {}", ctl.tau_d);
+
+  ctl.tau_d_w_floatingBase = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase); // full vector zeroed
+  ctl.tau_d_w_floatingBase.head(ctl.dofNumber) = ctl.tau_d; // copy only joint torques
+
+
+  // Simulate the torque task by converting the torque target to an acceleration target
+  rbd::ForwardDynamics fd(realRobot.mb());
+  fd.computeH(realRobot.mb(), realRobot.mbc());
+  fd.computeC(realRobot.mb(), realRobot.mbc());
+  Eigen::MatrixXd M = fd.H();
+  Eigen::VectorXd Cg = fd.C();
+  ctl.refAccel_w_floatingBase = M.completeOrthogonalDecomposition().solve(ctl.tau_d_w_floatingBase - Cg);
+  // For the TVM backend
+  ctl.refAccel = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase);
+  ctl.refAccel.head(ctl.dofNumber) = ctl.refAccel_w_floatingBase.head(ctl.dofNumber);
+  // Keep the full vector for Task
+  // ctl.refAccel = ctl.refAccel_w_floatingBase; 
+
+
+  mc_rtc::log::info("[RLController] refAccel: {}", ctl.refAccel);
+  ctl.similiTorqueTask->refAccel(ctl.refAccel);
 }
 
 EXPORT_SINGLE_STATE("RLController_Initial", RLController_Initial)
