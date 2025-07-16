@@ -51,8 +51,7 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd ddot_qp_w_floatingBase; // Desired acceleration in the QP solver with floating base
   Eigen::VectorXd q_cmd; // The commended position send to the internal PD of the robot
   Eigen::VectorXd q_cmd_w_floatingBase; // The commended position send to the internal PD of the robot with floating base
-  Eigen::VectorXd q_cmd_after_pd; // The commended position after PD control
-  Eigen::VectorXd q_cmd_after_pd_w_floatingBase; // The commended position after PD control
+  Eigen::VectorXd tau_cmd_after_pd; // The commended position after PD control
 
 private:
 }; 
