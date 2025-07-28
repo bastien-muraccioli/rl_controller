@@ -1,27 +1,39 @@
-# Find ONNX Runtime
-# TODO : remove hardcode
+# ---- Check for ONNX Runtime ----
 
-find_path(ONNXRUNTIME_INCLUDE_DIR 
+set(ONNXRUNTIME_ROOT "" CACHE PATH "Path to ONNX Runtime installation")
+
+if(NOT ONNXRUNTIME_ROOT AND DEFINED ENV{ONNXRUNTIME_ROOT})
+  set(ONNXRUNTIME_ROOT $ENV{ONNXRUNTIME_ROOT})
+endif()
+
+find_path(ONNXRUNTIME_INCLUDE_DIR
   NAMES onnxruntime_cxx_api.h
-  PATHS /home/alice/Downloads/onnxruntime-linux-x64-1.22.0/include
+  HINTS ${ONNXRUNTIME_ROOT}
+  PATH_SUFFIXES include
+  PATHS
+    /usr/include
+    /usr/local/include
 )
 
-find_library(ONNXRUNTIME_LIB 
+find_library(ONNXRUNTIME_LIB
   NAMES onnxruntime
-  PATHS /home/alice/Downloads/onnxruntime-linux-x64-1.22.0/lib
+  HINTS ${ONNXRUNTIME_ROOT}
+  PATH_SUFFIXES lib
+  PATHS
+    /usr/lib
+    /usr/local/lib
 )
 
 if(NOT ONNXRUNTIME_INCLUDE_DIR)
-  message(FATAL_ERROR "ONNX Runtime headers not found")
+  message(FATAL_ERROR "ONNX Runtime headers not found. Set -DONNXRUNTIME_ROOT or install it.")
 endif()
 
 if(NOT ONNXRUNTIME_LIB)
-  message(FATAL_ERROR "ONNX Runtime library not found")
+  message(FATAL_ERROR "ONNX Runtime library not found. Set -DONNXRUNTIME_ROOT or install it.")
 endif()
 
-message(STATUS "ONNX Runtime found, enabling ONNX support in RLController")
-message(STATUS "ONNX include: ${ONNXRUNTIME_INCLUDE_DIR}")
-message(STATUS "ONNX library: ${ONNXRUNTIME_LIB}")
+message(STATUS "ONNX Runtime include: ${ONNXRUNTIME_INCLUDE_DIR}")
+message(STATUS "ONNX Runtime lib: ${ONNXRUNTIME_LIB}")
 
 # ---- Sources ----
 
@@ -46,7 +58,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC mc_rtc::mc_control_fsm)
 add_controller(${PROJECT_NAME}_controller lib.cpp "")
 target_link_libraries(${PROJECT_NAME}_controller PUBLIC ${PROJECT_NAME})
 
-# ---- Apply ONNX includes/libs to both targets ----
+# ---- Link ONNX to both targets ----
 
 foreach(tgt IN ITEMS ${PROJECT_NAME} ${PROJECT_NAME}_controller)
   target_include_directories(${tgt} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
