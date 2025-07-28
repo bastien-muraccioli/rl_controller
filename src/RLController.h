@@ -10,6 +10,7 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include "api.h"
 
 struct RLController : public mc_control::fsm::Controller
@@ -32,6 +33,16 @@ struct RLController : public mc_control::fsm::Controller
   
   // Past action for observation (size 19)
   Eigen::VectorXd pastAction_;
+  
+  // Reference position and action blending for policy output
+  Eigen::VectorXd q_ref_;               // Reference joint positions (19 joints in mc_rtc order)
+  Eigen::VectorXd lastActions_;         // Last actions applied (19 joints in mc_rtc order)
+  
+  // 40Hz inference timing
+  std::chrono::steady_clock::time_point lastInferenceTime_;
+  Eigen::VectorXd currentTargetPosition_;  // Hold target position between inference calls
+  bool targetPositionValid_;               // Flag to check if we have a valid target
+  static constexpr double INFERENCE_PERIOD_MS = 25.0;  // 40Hz = 25ms period
   
   Eigen::VectorXd kp_;
   Eigen::VectorXd kd_;

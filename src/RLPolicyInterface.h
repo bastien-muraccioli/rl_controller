@@ -4,23 +4,21 @@
 #include <string>
 #include <memory>
 
-#ifdef USE_ONNX
 #include <onnxruntime_cxx_api.h>
-#endif
 
 /**
  * @brief Interface for RL policy inference
  * 
  * This class abstracts the RL policy implementation, allowing you to use
  * different backends (PyTorch, ONNX, TensorFlow, etc.) without changing
- * the controller code.
+ * the controller code. (currently only ONNX supported)
  */
 class RLPolicyInterface
 {
 public:
   /**
    * @brief Construct with a policy file path
-   * @param policyPath Path to the policy file (.pth, .onnx, etc.)
+   * @param policyPath Path to the policy file
    */
   RLPolicyInterface(const std::string & policyPath);
   
@@ -63,7 +61,6 @@ private:
   bool isLoaded_;
   std::string policyPath_;
   
-#ifdef USE_ONNX
   std::unique_ptr<Ort::Session> onnxSession_;
   std::unique_ptr<Ort::Env> onnxEnv_;
   std::unique_ptr<Ort::MemoryInfo> memoryInfo_;
@@ -73,11 +70,8 @@ private:
   std::vector<const char*> outputNamePtrs_;
   std::vector<int64_t> inputShape_;
   std::vector<int64_t> outputShape_;
-#endif
   
   void loadPolicy(const std::string & path);
   
-#ifdef USE_ONNX
   Eigen::VectorXd runOnnxInference(const Eigen::VectorXd & observation);
-#endif
 }; 

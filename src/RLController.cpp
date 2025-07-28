@@ -43,6 +43,34 @@ void RLController::reset(const mc_control::ControllerResetData & reset_data)
   initializeImpedanceGains();
   pastAction_ = Eigen::VectorXd::Zero(19);
   
+  // Initialize reference position and last actions for action blending
+  q_ref_ = Eigen::VectorXd::Zero(19);
+  lastActions_ = Eigen::VectorXd::Zero(19);
+  
+  // Capture current joint positions as reference (default position)
+  const auto & robot = this->robot();
+  for(size_t i = 0; i < allJoints_.size(); ++i)
+  {
+    if(robot.hasJoint(allJoints_[i]))
+    {
+      auto jIndex = robot.jointIndexByName(allJoints_[i]);
+      q_ref_(i) = robot.mbc().q[jIndex][0];
+    }
+    else
+    {
+      mc_rtc::log::warning("Joint {} not found in robot model during reference initialization", allJoints_[i]);
+      q_ref_(i) = 0.0;
+    }
+  }
+  
+  mc_rtc::log::info("Reference position initialized with {} joints", q_ref_.size());
+  mc_rtc::log::info("Reference positions: {}", q_ref_.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));
+  
+  // Initialize 40Hz inference timing
+  lastInferenceTime_ = std::chrono::steady_clock::now();
+  currentTargetPosition_ = q_ref_;  // Start with reference position
+  targetPositionValid_ = true;
+  
   useAsyncInference_ = config()("use_async_inference", true);
   mc_rtc::log::info("Async RL inference: {}", useAsyncInference_ ? "enabled" : "disabled");
   
@@ -238,8 +266,20 @@ Eigen::VectorXd RLController::getCurrentObservation()
   obs.segment(5, 10) = legPos;
   obs.segment(15, 10) = legVel;
   
-  // past action
-  obs.segment(25, 10) = pastAction_.head(10);
+  // past action: reorder to ManiSkill format and extract leg joints
+  Eigen::VectorXd reorderedPastAction = reorderObservationToManiskill(pastAction_);
+  Eigen::VectorXd legPastAction(10);
+  for(size_t i = 0; i < legIndicesInManiskill.size(); ++i)
+  {
+    int idx = legIndicesInManiskill[i];
+    if(idx >= reorderedPastAction.size()) {
+      mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, reorderedPastAction.size());
+      legPastAction(i) = 0.0;
+    } else {
+      legPastAction(i) = reorderedPastAction(idx);
+    }
+  }
+  obs.segment(25, 10) = legPastAction;
   
   return obs;
 }
@@ -252,10 +292,71 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     return;
   }
   
-  Eigen::VectorXd reorderedAction = reorderActionFromManiskill(action);
+  // Check if it's time for new inference (40Hz = 25ms period)
+  auto currentTime = std::chrono::steady_clock::now();
+  auto timeSinceLastInference = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastInferenceTime_);
   
-  pastAction_ = reorderedAction;
-
+  bool shouldRunInference = timeSinceLastInference.count() >= INFERENCE_PERIOD_MS;
+  
+  if(shouldRunInference) {
+    // Get current observation for logging
+    Eigen::VectorXd currentObs = getCurrentObservation();
+    
+    // Run new inference and update target position
+    Eigen::VectorXd reorderedAction = reorderActionFromManiskill(action);
+    
+    // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
+    currentTargetPosition_ = q_ref_ + 0.75 * reorderedAction + 0.25 * lastActions_;
+    
+    // Update lastActions_ for next iteration
+    lastActions_ = reorderedAction;
+    pastAction_ = reorderedAction;
+    
+    // Update timing
+    lastInferenceTime_ = currentTime;
+    targetPositionValid_ = true;
+    
+    // Detailed logging for policy input/output comparison
+    static int inferenceCounter = 0;
+    inferenceCounter++;
+    
+    // if(inferenceCounter % 10 == 0) { // Log every 10 inferences (0.25 seconds at 40Hz)
+      mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
+      mc_rtc::log::info("Policy Input (35 obs): [");
+      for(int i = 0; i < 35; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
+      }
+      mc_rtc::log::info("]");
+      mc_rtc::log::info("Policy Output Raw (19 ManiSkill order): [");
+      for(int i = 0; i < 19; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, action(i));
+      }
+      mc_rtc::log::info("]");
+      mc_rtc::log::info("Policy Output Reordered (19 mc_rtc order): [");
+      for(int i = 0; i < 19; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, reorderedAction(i));
+      }
+      mc_rtc::log::info("]");
+      mc_rtc::log::info("Blended Target Position (19): [");
+      for(int i = 0; i < 19; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, currentTargetPosition_(i));
+      }
+      mc_rtc::log::info("]");
+      mc_rtc::log::info("Reference Position q_ref (19): [");
+      for(int i = 0; i < 19; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
+      }
+      mc_rtc::log::info("]");
+      mc_rtc::log::info("=== End Policy I/O ===");
+  }
+  
+  // Always apply impedance control at mc_rtc frequency using current target position
+  if(!targetPositionValid_) {
+    mc_rtc::log::warning("No valid target position available for impedance control");
+    return;
+  }
+  
+  // Get current joint positions and velocities
   Eigen::VectorXd currentPos(19);
   Eigen::VectorXd currentVel(19);
   
@@ -266,7 +367,6 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     if(robot.hasJoint(allJoints_[i]))
     {
       auto jIndex = robot.jointIndexByName(allJoints_[i]);
-      
       currentPos(i) = robot.mbc().q[jIndex][0];
       currentVel(i) = robot.mbc().alpha[jIndex][0];
     }
@@ -277,19 +377,19 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     }
   }
   
-  Eigen::VectorXd desiredTorques = computeImpedanceTorques(reorderedAction, currentPos, currentVel);
+  // Compute impedance torques using current target position (runs at mc_rtc frequency)
+  Eigen::VectorXd desiredTorques = computeImpedanceTorques(currentTargetPosition_, currentPos, currentVel);
   
   std::map<std::string, std::vector<double>> torqueMap;
   for(size_t i = 0; i < 10; ++i)
   {
-    if(i >= 10) {
-      mc_rtc::log::error("Trying to access legjoint[{}] but size is {}", i, 10);
+    if(i >= allJoints_.size()) {
+      mc_rtc::log::error("Trying to access joint[{}] but size is {}", i, allJoints_.size());
       break;
     }
-    mc_rtc::log::info("Adding torque for joint {} ({}): {}", i, allJoints_[i], desiredTorques(i));
     torqueMap[allJoints_[i]] = {desiredTorques(i)};
   }
-  mc_rtc::log::info("========================================================================");
+  
   torqueTask_->target(torqueMap);
 }
 

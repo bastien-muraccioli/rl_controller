@@ -18,7 +18,6 @@ RLPolicyInterface::RLPolicyInterface()
 
 RLPolicyInterface::~RLPolicyInterface()
 {
-  //TODO : cleanup any loaded models here
 }
 
 void RLPolicyInterface::loadPolicy(const std::string & path)
@@ -27,7 +26,6 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
   {
     mc_rtc::log::info("Loading RL policy from: {}", path);
     
-#ifdef USE_ONNX
     if(path.size() >= 5 && path.substr(path.size() - 5) == ".onnx")
     {
       if(!std::filesystem::exists(path))
@@ -146,7 +144,6 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
                           getObservationSize(), getActionSize());
       return;
     }
-#endif
     isLoaded_ = true;
   }
   catch(const std::exception & e)
@@ -170,7 +167,6 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
     return Eigen::VectorXd::Zero(19);
   }
   
-#ifdef USE_ONNX
   if(!policyPath_.empty() && policyPath_.size() >= 5)
   {
     std::string ext = policyPath_.substr(policyPath_.size() - 5);
@@ -186,11 +182,9 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
       }
     }
   }
-#endif
   return Eigen::VectorXd::Zero(19);
 }
 
-#ifdef USE_ONNX
 Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & observation)
 {
   std::vector<float> inputData(observation.size());
@@ -230,4 +224,3 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
   
   return action;
 }
-#endif 
