@@ -4,10 +4,10 @@
 # If true, the FSM transitions are managed by an external tool
 Managed: false
 # If true and the FSM is self-managed, transitions should be triggered
-StepByStep: false
+StepByStep: true
 # Change idle behaviour, if true the state is kept until transition,
 # otherwise the FSM holds the last state until transition
-IdleKeepState: true
+IdleKeepState: false
 # Where to look for state libraries
 StatesLibraries:
 - "@MC_STATES_DEFAULT_RUNTIME_INSTALL_PREFIX@"
@@ -98,17 +98,101 @@ ObserverPipelines:
       config:
           velocity: encoderVelocities
     
-    - type: Attitude
-      required: true
-      update: true
+    # - type: Attitude
+    #   required: true
+    #   update: true
 
-    - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
-      update: true                         #   update the real robot instance from its results
-      gui: true                            #   Displays the estimated velocity as an arrow (default)
-      config:
-        imuBodySensor: Accelerometer
+    # - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
+    #   update: true                         #   update the real robot instance from its results
+    #   gui: true                            #   Displays the estimated velocity as an arrow (default)
+    #   config:
+    #     imuBodySensor: Accelerometer
 
     - type: BodySensor
       update: true
       config:
         bodySensor: FloatingBase
+
+# kp:
+#     left_hip_yaw_joint: 1500.0
+#     left_hip_roll_joint: 1500.0
+#     left_hip_pitch_joint: 1500.0
+#     left_knee_joint: 1500.0
+#     left_ankle_joint: 1500.0
+#     right_hip_yaw_joint: 1500.0
+#     right_hip_roll_joint: 1500.0
+#     right_hip_pitch_joint: 1500.0
+#     right_knee_joint: 1500.0
+#     right_ankle_joint: 1500.0
+#     torso_joint: 200.0
+#     left_shoulder_pitch_joint: 200.0
+#     left_shoulder_roll_joint: 100.0
+#     left_shoulder_yaw_joint: 100.0
+#     left_elbow_joint: 200.0
+#     right_shoulder_pitch_joint: 200.0
+#     right_shoulder_roll_joint: 100.0
+#     right_shoulder_yaw_joint: 100.0
+#     right_elbow_joint: 200.0
+
+# kd:
+#     left_hip_yaw_joint: 25.0
+#     left_hip_roll_joint: 25.0
+#     left_hip_pitch_joint: 25.0
+#     left_knee_joint: 25.0
+#     left_ankle_joint: 25.0
+#     right_hip_yaw_joint: 25.0
+#     right_hip_roll_joint: 25.0
+#     right_hip_pitch_joint: 25.0
+#     right_knee_joint: 25.0
+#     right_ankle_joint: 25.0
+#     torso_joint: 6.0
+#     left_shoulder_pitch_joint: 2.0
+#     left_shoulder_roll_joint: 2.0
+#     left_shoulder_yaw_joint: 2.0
+#     left_elbow_joint: 2.0
+#     right_shoulder_pitch_joint: 2.0
+#     right_shoulder_roll_joint: 2.0
+#     right_shoulder_yaw_joint: 2.0
+#     right_elbow_joint: 2.0
+
+kp:
+    left_hip_yaw_joint: 100.0
+    left_hip_roll_joint: 100.0
+    left_hip_pitch_joint: 100.0
+    left_knee_joint: 100.0
+    left_ankle_joint: 20.0
+    right_hip_yaw_joint: 100.0
+    right_hip_roll_joint: 100.0
+    right_hip_pitch_joint: 100.0
+    right_knee_joint: 100.0
+    right_ankle_joint: 20.0
+    torso_joint: 100.0
+    left_shoulder_pitch_joint: 100.0
+    left_shoulder_roll_joint: 100.0
+    left_shoulder_yaw_joint: 100.0
+    left_elbow_joint: 100.0
+    right_shoulder_pitch_joint: 100.0
+    right_shoulder_roll_joint: 100.0
+    right_shoulder_yaw_joint: 100.0
+    right_elbow_joint: 100.0
+
+kd:
+    left_hip_yaw_joint: 10.0
+    left_hip_roll_joint: 10.0
+    left_hip_pitch_joint: 10.0
+    left_knee_joint: 10.0
+    left_ankle_joint: 4.0
+    right_hip_yaw_joint: 10.0
+    right_hip_roll_joint: 10.0
+    right_hip_pitch_joint: 10.0
+    right_knee_joint: 10.0
+    right_ankle_joint: 4.0
+    torso_joint: 10.0
+    left_shoulder_pitch_joint: 5.0
+    left_shoulder_roll_joint: 5.0
+    left_shoulder_yaw_joint: 5.0
+    left_elbow_joint: 5.0
+    right_shoulder_pitch_joint: 5.0
+    right_shoulder_roll_joint: 5.0
+    right_shoulder_yaw_joint: 5.0
+    right_elbow_joint: 5.0

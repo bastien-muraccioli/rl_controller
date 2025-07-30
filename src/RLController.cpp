@@ -1,4 +1,5 @@
 #include "RLController.h"
+#include <Eigen/src/Core/VectorBlock.h>
 #include <eigen3/Eigen/src/Core/Matrix.h>
 #include <mc_rtc/logging.h>
 #include <mc_rbdyn/configuration_io.h>
@@ -19,69 +20,119 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
           robots(), 0, {0.1, 0.01, 0.0, 1.8, 70.0}, 0.9, true));
   solver().addConstraintSet(dynamicsConstraint);
   
-  datastore().make<std::string>("ControlMode", "Torque");
-  mc_rtc::log::success("RLController init");
-}
+  dofNumber_with_floatingBase = robot().mb().nrDof();
+  dofNumber = robot().mb().nrDof() - 6; // Remove the floating base part (6 DoF)
+  // refAccel = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Task
+  refAccel = Eigen::VectorXd::Zero(dofNumber); // TVM
+  // refAccel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  q_rl_vector = Eigen::VectorXd::Zero(dofNumber);
+  tau_d = Eigen::VectorXd::Zero(dofNumber);
+  // tau_d_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  kp_vector = Eigen::VectorXd::Zero(dofNumber);
+  kd_vector = Eigen::VectorXd::Zero(dofNumber);
+  currentPos = Eigen::VectorXd::Zero(dofNumber);
+  currentVel = Eigen::VectorXd::Zero(dofNumber);
+  // currentPos_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // currentVel_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
 
-RLController::~RLController()
-{
-  stopInferenceThread();
-  mc_rtc::log::info("RLController destroyed");
-}
-
-bool RLController::run()
-{
-  // return mc_control::fsm::Controller::run();
-  return mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-}
-
-void RLController::reset(const mc_control::ControllerResetData & reset_data)
-{
-  mc_control::fsm::Controller::reset(reset_data);
+  ddot_qp = Eigen::VectorXd::Zero(dofNumber); // Desired acceleration in the QP solver
+  ddot_qp_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // Desired acceleration in the QP solver with floating base
+  q_cmd = Eigen::VectorXd::Zero(dofNumber); // The commended position send to the internal PD of the robot
+  // q_cmd_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // The commended position send to the internal PD of the robot with floating base
+  tau_cmd_after_pd = Eigen::VectorXd::Zero(dofNumber); // The commended position after PD control
   
+  similiTorqueTask = std::make_shared<mc_tasks::PostureTask>(solver(), robot().robotIndex(), 0.0, 1000.0);
+  similiTorqueTask->weight(1000.0);
+  similiTorqueTask->stiffness(0.0);
+  similiTorqueTask->damping(0.0);
+  similiTorqueTask->refAccel(refAccel);
+  solver().addTask(similiTorqueTask);
+
+  // Get the gains from the configuration or set default values
+  kp = config("kp");
+  kd = config("kd");
+
+  // Get the default posture target from the robot's posture task
+  FSMPostureTask = getPostureTask(robot().name());
+  auto posture = FSMPostureTask->posture();
+  size_t i = 0;
+  std::vector<std::string> joint_names;
+  joint_names.reserve(robot().mb().joints().size());
+  for (const auto &j : robot().mb().joints()) {
+      const std::string &joint_name = j.name();
+      if(j.type() == rbd::Joint::Type::Rev)
+      {
+        jointNames.emplace_back(joint_name);  
+        if (const auto &t = posture[robot().jointIndexByName(joint_name)]; !t.empty()) {
+            kp_vector[i] = kp.at(joint_name);
+            kd_vector[i] = kd.at(joint_name);
+            q_rl_vector[i] = t[0];
+            mc_rtc::log::info("[RLController] Joint {}: currentTargetPosition {}, kp {}, kd {}", joint_name, q_rl_vector[i], kp_vector[i], kd_vector[i]);
+            i++;
+        }
+      }
+  }
+  solver().removeTask(FSMPostureTask);
+
+  auto & real_robot = realRobot(robots()[0].name());
+  
+  //  Eigen::Vector3d baseAngVel = real_robot.bodyVelW()[0].angular();
+
+  baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
+  rpy = mc_rbdyn::rpyFromMat(baseRot);
+    
+  mc_rtc::log::info("[RLController] Posture target initialized with {} joints", dofNumber);
+
+  datastore().make<std::string>("ControlMode", "Torque");
+  // datastore().make<std::string>("ControlMode", "Position");
   initializeAllJoints();
-  initializeImpedanceGains();
-  pastAction_ = Eigen::VectorXd::Zero(19);
+  // initializeImpedanceGains();
+  a_maniskillOrder = Eigen::VectorXd::Zero(dofNumber);
   
   // Initialize reference position and last actions for action blending
-  q_ref_ = Eigen::VectorXd::Zero(19);
-  lastActions_ = Eigen::VectorXd::Zero(19);
-  
+  q_zero_vector = Eigen::VectorXd::Zero(dofNumber);
+  a_before_vector = Eigen::VectorXd::Zero(dofNumber);
+  a_vector = Eigen::VectorXd::Zero(dofNumber);
+  legPos = Eigen::VectorXd::Zero(10);
+  legVel = Eigen::VectorXd::Zero(10);
+  legAction = Eigen::VectorXd::Zero(10);
+
   // Capture current joint positions as reference (default position)
   const auto & robot = this->robot();
-  for(size_t i = 0; i < allJoints_.size(); ++i)
+  for(size_t i = 0; i < mcRtcJointsOrder.size(); ++i)
   {
-    if(robot.hasJoint(allJoints_[i]))
+    if(robot.hasJoint(mcRtcJointsOrder[i]))
     {
-      auto jIndex = robot.jointIndexByName(allJoints_[i]);
-      q_ref_(i) = robot.mbc().q[jIndex][0];
+      auto jIndex = robot.jointIndexByName(mcRtcJointsOrder[i]);
+      q_zero_vector(i) = robot.mbc().q[jIndex][0];
     }
     else
     {
-      mc_rtc::log::warning("Joint {} not found in robot model during reference initialization", allJoints_[i]);
-      q_ref_(i) = 0.0;
+      mc_rtc::log::warning("Joint {} not found in robot model during reference initialization", mcRtcJointsOrder[i]);
+      q_zero_vector(i) = 0.0;
     }
   }
   
-  mc_rtc::log::info("Reference position initialized with {} joints", q_ref_.size());
-  mc_rtc::log::info("Reference positions: {}", q_ref_.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));
+  mc_rtc::log::info("Reference position initialized with {} joints", q_zero_vector.size());
+  // mc_rtc::log::info("Reference positions: {}", q_ref_.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));
   
   // Initialize 40Hz inference timing
   lastInferenceTime_ = std::chrono::steady_clock::now();
-  currentTargetPosition_ = q_ref_;  // Start with reference position
+  q_rl_vector = q_zero_vector;  // Start with reference position
   targetPositionValid_ = true;
   
-  useAsyncInference_ = config()("use_async_inference", true);
+  useAsyncInference_ = config("use_async_inference", true);
   mc_rtc::log::info("Async RL inference: {}", useAsyncInference_ ? "enabled" : "disabled");
   
   shouldStopInference_ = false;
   newObservationAvailable_ = false;
   newActionAvailable_ = false;
   currentObservation_ = Eigen::VectorXd::Zero(35);
-  currentAction_ = Eigen::VectorXd::Zero(19);
-  latestAction_ = Eigen::VectorXd::Zero(19);
+  currentAction_ = Eigen::VectorXd::Zero(dofNumber);
+  latestAction_ = Eigen::VectorXd::Zero(dofNumber);
   
-  std::string policyPath = config()("policy_path", std::string(""));
+  std::string policyPath = config("policy_path", std::string(""));
   if(!policyPath.empty())
   {
     mc_rtc::log::info("Loading RL policy from: {}", policyPath);
@@ -93,21 +144,135 @@ void RLController::reset(const mc_control::ControllerResetData & reset_data)
     rlPolicy_ = std::make_unique<RLPolicyInterface>();
   }
   
-  torqueTask_ = std::make_shared<mc_tasks::TorqueTask>(solver(), 0, 1000.0);
-  solver().addTask(torqueTask_);
+  // torqueTask_ = std::make_shared<mc_tasks::TorqueTask>(solver(), 0, 1000.0);
+  // solver().addTask(torqueTask_);
   
   if(useAsyncInference_)
   {
     startInferenceThread();
   }
+
   
+
+  // add to logger
+  logger().addLogEntry("RLController_refAccel", [this]() { return refAccel; });
+  // logger().addLogEntry("RLController_refAccel_w_floatingBase", [this]()
+  // { return refAccel_w_floatingBase; });
+  logger().addLogEntry("RLController_currentTargetPosition", [this]() { return q_rl_vector; });
+  logger().addLogEntry("RLController_tau_d", [this]() { return tau_d; });
+  // logger().addLogEntry("RLController_tau_d_w_floatingBase", [this]()
+  // { return tau_d_w_floatingBase; });
+  logger().addLogEntry("RLController_kp", [this]() { return kp_vector; });
+  logger().addLogEntry("RLController_kd", [this]() { return kd_vector; });
+  logger().addLogEntry("RLController_currentPos", [this]() { return currentPos; });
+  // logger().addLogEntry("RLController_currentPos_w_floatingBase", [this]()
+  // { return currentPos_w_floatingBase; });
+  logger().addLogEntry("RLController_currentVel", [this]() { return currentVel; });
+  // logger().addLogEntry("RLController_currentVel_w_floatingBase", [this]()
+  // { return currentVel_w_floatingBase; });
+  logger().addLogEntry("RLController_q_cmd", [this]() { return q_cmd; });
+  // logger().addLogEntry("RLController_q_cmd_w_floatingBase", [this]()
+  // { return q_cmd_w_floatingBase; });
+  logger().addLogEntry("RLController_ddot_qp", [this]() { return ddot_qp; });
+  logger().addLogEntry("RLController_ddot_qp_w_floatingBase", [this]()
+  { return ddot_qp_w_floatingBase; });
+
+  logger().addLogEntry("RLController_tau_cmd_after_pd_positionCtl", [this]() { return tau_cmd_after_pd; });
+
+  // pastAction_
+  logger().addLogEntry("RLController_pastAction", [this]() { return a_maniskillOrder; });
+  // q_ref_
+  logger().addLogEntry("RLController_qZero", [this]() { return q_zero_vector; });
+  // lastActions_
+  logger().addLogEntry("RLController_a_before", [this]() { return a_before_vector; });
+  // currentObservation_
+  logger().addLogEntry("RLController_currentObservation", [this]() { return currentObservation_; });
+  // a_vector
+  logger().addLogEntry("RLController_a_vector", [this]() { return a_vector; });
+  // a_maniskillOrder
+  logger().addLogEntry("RLController_a_maniskillOrder", [this]() { return a_maniskillOrder; });
+  // currentAction_
+  logger().addLogEntry("RLController_currentAction", [this]() { return currentAction_; });
+  // latestAction_
+  logger().addLogEntry("RLController_latestAction", [this]() { return latestAction_; });
+  // baseAngVel
+  logger().addLogEntry("RLController_baseAngVel", [this]() { return baseAngVel; });
+  // rpy
+  logger().addLogEntry("RLController_rpy", [this]() { return rpy; });
+  // legPos
+  logger().addLogEntry("RLController_legPos", [this]() { return legPos; });
+  // legVel
+  logger().addLogEntry("RLController_legVel", [this]() { return legVel; });
+  // legAction
+  logger().addLogEntry("RLController_legAction", [this]() { return legAction; });
+
+
+  mc_rtc::log::success("RLController init");
+}
+
+RLController::~RLController()
+{
+  stopInferenceThread();
+  mc_rtc::log::info("RLController destroyed");
+}
+
+bool RLController::run()
+{
+  // Update the solver depending on the control mode
+  auto ctrl_mode = datastore().get<std::string>("ControlMode");
+  if (ctrl_mode.compare("Position") == 0) {
+    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
+    robot().forwardKinematics();
+    robot().forwardVelocity();
+    robot().forwardAcceleration();
+
+
+    rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
+    ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
+
+    // Use robot instead of realrobot because we are after the QP
+    rbd::ForwardDynamics fd(robot().mb());
+    fd.computeH(robot().mb(), robot().mbc());
+    fd.computeC(robot().mb(), robot().mbc());
+    Eigen::MatrixXd M_w_floatingBase = fd.H();
+    Eigen::VectorXd Cg_w_floatingBase = fd.C();
+    Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
+    Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
+
+    Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
+
+    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
+
+    tau_cmd_after_pd = kd_vector.cwiseProduct(currentPos - q_cmd) - kd_vector.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
+    
+    auto q = robot().mbc().q;
+    
+    size_t i = 0;
+    for (const auto &joint_name : jointNames)
+    {
+      q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
+      i++;
+    }
+
+    robot().mbc().q = q; // Update the mbc with the new position
+    return run;
+
+  } 
+  return mc_control::fsm::Controller::run(
+      mc_solver::FeedbackType::ClosedLoopIntegrateReal);
+
+}
+
+void RLController::reset(const mc_control::ControllerResetData & reset_data)
+{
+  mc_control::fsm::Controller::reset(reset_data);
   mc_rtc::log::success("RLController reset completed");
 }
 
 void RLController::initializeAllJoints()
 {
   // H1 joints in mc_rtc/URDF order (based on unitree_sdk2 reorder_obs function)
-  allJoints_ = {
+  mcRtcJointsOrder = {
     "left_hip_yaw_joint",      
     "left_hip_roll_joint",       
     "left_hip_pitch_joint",    
@@ -128,44 +293,92 @@ void RLController::initializeAllJoints()
     "right_shoulder_yaw_joint",   
     "right_elbow_joint"           
   };
+
+  maniskillJointsOrder = {
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "torso_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "left_shoulder_pitch_joint",
+    "right_shoulder_pitch_joint",
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_shoulder_yaw_joint",
+    "right_shoulder_yaw_joint",
+    "left_ankle_joint",
+    "right_ankle_joint",
+    "left_elbow_joint",
+    "right_elbow_joint"
+  };
+
+  maniskillLegsJointsOrder = {
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_ankle_joint",
+    "right_ankle_joint"
+  };
+
+  notControlledJoints = {
+    "left_shoulder_pitch_joint",
+    "right_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "right_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "right_elbow_joint",
+    "torso_joint"
+  };
   
   // leg joints (first 10)
-  legJoints_ = std::vector<std::string>(allJoints_.begin(), allJoints_.begin() + 10);
+  legJoints_ = std::vector<std::string>(mcRtcJointsOrder.begin(), mcRtcJointsOrder.begin() + 10);
   
+  legIndicesInManiskill = {0, 1, 3, 4, 7, 8, 11, 12, 15, 16};
   maniskillToMcRtcIdx_ = {0, 3, 7, 11, 15, 1, 4, 8, 12, 16, 2, 5, 9, 13, 17, 6, 10, 14, 18};
   mcRtcToManiskillIdx_ = {0, 5, 10, 1, 6, 11, 15, 2, 7, 12, 16, 3, 8, 13, 17, 4, 9, 14, 18};
 }
 
-void RLController::initializeImpedanceGains()
-{
-  kp_ = Eigen::VectorXd(19);
-  kd_ = Eigen::VectorXd(19);
+// void RLController::initializeImpedanceGains()
+// {
+//   kp_ = Eigen::VectorXd(dofNumber);
+//   kd_ = Eigen::VectorXd(dofNumber);
   
-  kp_.segment(0, 5) << 100.0, 100.0, 100.0, 100.0, 20.0;  // Left leg
-  kd_.segment(0, 5) << 10.0, 10.0, 10.0, 10.0, 4.0;
+//   kp_.segment(0, 5) << 100.0, 100.0, 100.0, 100.0, 20.0;  // Left leg
+//   kd_.segment(0, 5) << 10.0, 10.0, 10.0, 10.0, 4.0;
   
-  kp_.segment(5, 5) << 100.0, 100.0, 100.0, 100.0, 20.0;  // Right leg  
-  kd_.segment(5, 5) << 10.0, 10.0, 10.0, 10.0, 4.0;
+//   kp_.segment(5, 5) << 100.0, 100.0, 100.0, 100.0, 20.0;  // Right leg  
+//   kd_.segment(5, 5) << 10.0, 10.0, 10.0, 10.0, 4.0;
   
-  // Torso
-  kp_(10) = 100.0; kd_(10) = 10.0;
+//   // Torso
+//   kp_(10) = 100.0; kd_(10) = 10.0;
   
-  kp_.segment(11, 4) << 100.0, 100.0, 100.0, 100.0;  // Left arm
-  kd_.segment(11, 4) << 5.0, 5.0, 5.0, 5.0;
+//   kp_.segment(11, 4) << 100.0, 100.0, 100.0, 100.0;  // Left arm
+//   kd_.segment(11, 4) << 5.0, 5.0, 5.0, 5.0;
   
-  kp_.segment(15, 4) << 100.0, 100.0, 100.0, 100.0;  // Right arm
-  kd_.segment(15, 4) << 5.0, 5.0, 5.0, 5.0;
-}
+//   kp_.segment(15, 4) << 100.0, 100.0, 100.0, 100.0;  // Right arm
+//   kd_.segment(15, 4) << 5.0, 5.0, 5.0, 5.0;
+// }
 
-Eigen::VectorXd RLController::reorderObservationToManiskill(const Eigen::VectorXd & obs)
+Eigen::VectorXd RLController::reorderJointsToManiskill(const Eigen::VectorXd & obs)
 {  
-  if(obs.size() != 19) {
-    mc_rtc::log::error("Observation reordering expects 19 joints, got {}", obs.size());
+  if(obs.size() != dofNumber) {
+    mc_rtc::log::error("Observation reordering expects dofNumber joints, got {}", obs.size());
     return obs;
   }
   
-  Eigen::VectorXd reordered(19);
-  for(int i = 0; i < 19; i++) {
+  Eigen::VectorXd reordered(dofNumber);
+  for(int i = 0; i < dofNumber; i++) {
     if(i >= mcRtcToManiskillIdx_.size()) {
       mc_rtc::log::error("Trying to access mcRtcToManiskillIdx_[{}] but size is {}", i, mcRtcToManiskillIdx_.size());
       reordered[i] = 0.0;
@@ -183,15 +396,15 @@ Eigen::VectorXd RLController::reorderObservationToManiskill(const Eigen::VectorX
   return reordered;
 }
 
-Eigen::VectorXd RLController::reorderActionFromManiskill(const Eigen::VectorXd & action)
+Eigen::VectorXd RLController::reorderJointsFromManiskill(const Eigen::VectorXd & action)
 {  
-  if(action.size() != 19) {
-    mc_rtc::log::error("Action reordering expects 19 joints, got {}", action.size());
+  if(action.size() != dofNumber) {
+    mc_rtc::log::error("Action reordering expects dofNumber joints, got {}", action.size());
     return action;
   }
   
-  Eigen::VectorXd reordered(19);
-  for(int i = 0; i < 19; i++) {
+  Eigen::VectorXd reordered(dofNumber);
+  for(int i = 0; i < dofNumber; i++) {
     if(i >= maniskillToMcRtcIdx_.size()) {
       mc_rtc::log::error("Trying to access maniskillToMcRtcIdx_[{}] but size is {}", i, maniskillToMcRtcIdx_.size());
       reordered[i] = 0.0;
@@ -216,40 +429,45 @@ Eigen::VectorXd RLController::getCurrentObservation()
   Eigen::VectorXd obs(35);
   obs = Eigen::VectorXd::Zero(35);
   
-  const auto & robot = this->robot();
+  // const auto & robot = this->robot();
+
+  auto & robot = robots()[0];
+  auto & real_robot = realRobot(robots()[0].name());
   
-  Eigen::Vector3d baseAngVel = robot.bodyVelW()[0].angular();
+  //  Eigen::Vector3d baseAngVel = real_robot.bodyVelW()[0].angular();
+
+  // baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  baseAngVel = real_robot.bodyVelW("pelvis").angular();
   obs.segment(0, 3) = baseAngVel; //base angular vel
   
-  Eigen::Matrix3d baseRot = robot.posW().rotation().transpose();
-  Eigen::Vector3d rpy = mc_rbdyn::rpyFromMat(baseRot);
+  Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
+  // Eigen::Matrix3d baseRot = real_robot.bodyTransform("pelvis").rotation();
+  rpy = mc_rbdyn::rpyFromMat(baseRot);
   obs(3) = rpy(0);  // roll
   obs(4) = rpy(1);  // pitch
   
   //pos & vel
-  Eigen::VectorXd allPos(19), allVel(19);
-  for(size_t i = 0; i < allJoints_.size(); ++i)
-  {
-    if(robot.hasJoint(allJoints_[i]))
-    {
-      auto jIndex = robot.jointIndexByName(allJoints_[i]);
+  // Eigen::VectorXd allPos(dofNumber), allVel(dofNumber);
+  // for(size_t i = 0; i < mcRtcJointsOrder.size(); ++i)
+  // {
+  //   if(robot.hasJoint(mcRtcJointsOrder[i]))
+  //   {
+  //     auto jIndex = robot.jointIndexByName(mcRtcJointsOrder[i]);
 
-      allPos(i) = robot.mbc().q[jIndex][0];
-      allVel(i) = robot.mbc().alpha[jIndex][0];
-    }
-    else
-    {
-      mc_rtc::log::warning("Joint {} not found in robot model", allJoints_[i]);
-      allPos(i) = 0.0;
-      allVel(i) = 0.0;
-    }
-  }
+  //     allPos(i) = robot.mbc().q[jIndex][0];
+  //     allVel(i) = robot.mbc().alpha[jIndex][0];
+  //   }
+  //   else
+  //   {
+  //     mc_rtc::log::warning("Joint {} not found in robot model", mcRtcJointsOrder[i]);
+  //     allPos(i) = 0.0;
+  //     allVel(i) = 0.0;
+  //   }
+  // }
   
-  Eigen::VectorXd reorderedPos = reorderObservationToManiskill(allPos);
-  Eigen::VectorXd reorderedVel = reorderObservationToManiskill(allVel);
+  Eigen::VectorXd reorderedPos = reorderJointsToManiskill(currentPos);
+  Eigen::VectorXd reorderedVel = reorderJointsToManiskill(currentVel);
   
-  std::vector<int> legIndicesInManiskill = {0, 1, 3, 4, 7, 8, 11, 12, 15, 16};
-  Eigen::VectorXd legPos(10), legVel(10);
   for(size_t i = 0; i < legIndicesInManiskill.size(); ++i)
   {
     int idx = legIndicesInManiskill[i];
@@ -267,28 +485,25 @@ Eigen::VectorXd RLController::getCurrentObservation()
   obs.segment(15, 10) = legVel;
   
   // past action: reorder to ManiSkill format and extract leg joints
-  Eigen::VectorXd reorderedPastAction = reorderObservationToManiskill(pastAction_);
-  Eigen::VectorXd legPastAction(10);
   for(size_t i = 0; i < legIndicesInManiskill.size(); ++i)
   {
     int idx = legIndicesInManiskill[i];
-    if(idx >= reorderedPastAction.size()) {
-      mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, reorderedPastAction.size());
-      legPastAction(i) = 0.0;
+    if(idx >= a_maniskillOrder.size()) {
+      mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, a_maniskillOrder.size());
+      legAction(i) = 0.0;
     } else {
-      legPastAction(i) = reorderedPastAction(idx);
+      legAction(i) = a_maniskillOrder(idx);
     }
   }
-  obs.segment(25, 10) = legPastAction;
-  
+  obs.segment(25, 10) = legAction;
   return obs;
 }
 
 void RLController::applyAction(const Eigen::VectorXd & action)
 {
-  if(action.size() != 19)
+  if(action.size() != dofNumber)
   {
-    mc_rtc::log::error("Action size mismatch: expected 19, got {}", action.size());
+    mc_rtc::log::error("Action size mismatch: expected dofNumber, got {}", action.size());
     return;
   }
   
@@ -303,14 +518,36 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     Eigen::VectorXd currentObs = getCurrentObservation();
     
     // Run new inference and update target position
-    Eigen::VectorXd reorderedAction = reorderActionFromManiskill(action);
+    a_vector = reorderJointsFromManiskill(action);
     
     // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
-    currentTargetPosition_ = q_ref_ + 0.75 * reorderedAction + 0.25 * lastActions_;
+    q_rl_vector = q_zero_vector + 0.75 * a_vector + 0.25 * a_before_vector;
+
+    // For not controlled joints, use the zero position
+    for(const auto & joint : notControlledJoints)
+    {
+      auto it = std::find(mcRtcJointsOrder.begin(), mcRtcJointsOrder.end(), joint);
+      if(it != mcRtcJointsOrder.end())
+      {
+        size_t idx = std::distance(mcRtcJointsOrder.begin(), it);
+        if(idx < q_rl_vector.size())
+        {
+          q_rl_vector(idx) = q_zero_vector(idx); // Set to zero position
+        }
+        else
+        {
+          mc_rtc::log::error("Joint {} index {} out of bounds for q_rl_vector size {}", joint, idx, q_rl_vector.size());
+        }
+      }
+      else
+      {
+        mc_rtc::log::error("Joint {} not found in mcRtcJointsOrder", joint);
+      }
+    }
     
     // Update lastActions_ for next iteration
-    lastActions_ = reorderedAction;
-    pastAction_ = reorderedAction;
+    a_before_vector = a_vector;
+    a_maniskillOrder = reorderJointsToManiskill(a_vector);
     
     // Update timing
     lastInferenceTime_ = currentTime;
@@ -327,26 +564,26 @@ void RLController::applyAction(const Eigen::VectorXd & action)
         mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
       }
       mc_rtc::log::info("]");
-      mc_rtc::log::info("Policy Output Raw (19 ManiSkill order): [");
-      for(int i = 0; i < 19; ++i) {
+      mc_rtc::log::info("Policy Output Raw (dofNumber ManiSkill order): [");
+      for(int i = 0; i < dofNumber; ++i) {
         mc_rtc::log::info("  [{}]: {:.6f}", i, action(i));
       }
       mc_rtc::log::info("]");
-      mc_rtc::log::info("Policy Output Reordered (19 mc_rtc order): [");
-      for(int i = 0; i < 19; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, reorderedAction(i));
+      mc_rtc::log::info("Policy Output Reordered (dofNumber mc_rtc order): [");
+      for(int i = 0; i < dofNumber; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, a_vector(i));
       }
       mc_rtc::log::info("]");
-      mc_rtc::log::info("Blended Target Position (19): [");
-      for(int i = 0; i < 19; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, currentTargetPosition_(i));
+      mc_rtc::log::info("Blended Target Position (dofNumber): [");
+      for(int i = 0; i < dofNumber; ++i) {
+        mc_rtc::log::info("  [{}]: {:.6f}", i, q_rl_vector(i));
       }
       mc_rtc::log::info("]");
-      mc_rtc::log::info("Reference Position q_ref (19): [");
-      for(int i = 0; i < 19; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
-      }
-      mc_rtc::log::info("]");
+      // mc_rtc::log::info("Reference Position q_ref (dofNumber): [");
+      // for(int i = 0; i < dofNumber; ++i) {
+      //   mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
+      // }
+      // mc_rtc::log::info("]");
       mc_rtc::log::info("=== End Policy I/O ===");
   }
   
@@ -357,55 +594,62 @@ void RLController::applyAction(const Eigen::VectorXd & action)
   }
   
   // Get current joint positions and velocities
-  Eigen::VectorXd currentPos(19);
-  Eigen::VectorXd currentVel(19);
-  
+  Eigen::VectorXd q_current(dofNumber);
+  Eigen::VectorXd q_dot_current(dofNumber);
+  auto & real_robot = realRobot(robots()[0].name());
+  auto q = real_robot.encoderValues();
+  q_current = Eigen::VectorXd::Map(q.data(), q.size());
+  // currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
+  // currentPos = currentPos_w_floatingBase.head(dofNumber); // Exclude the floating base part
+  auto vel = real_robot.encoderVelocities();
+  q_dot_current = Eigen::VectorXd::Map(vel.data(), vel.size());
+
   const auto & robot = this->robot();
   
-  for(size_t i = 0; i < allJoints_.size(); ++i)
+  for(size_t i = 0; i < mcRtcJointsOrder.size(); ++i)
   {
-    if(robot.hasJoint(allJoints_[i]))
+    if(robot.hasJoint(mcRtcJointsOrder[i]))
     {
-      auto jIndex = robot.jointIndexByName(allJoints_[i]);
-      currentPos(i) = robot.mbc().q[jIndex][0];
-      currentVel(i) = robot.mbc().alpha[jIndex][0];
+      auto jIndex = robot.jointIndexByName(mcRtcJointsOrder[i]);
+      q_current(i) = robot.mbc().q[jIndex][0];
+      q_dot_current(i) = robot.mbc().alpha[jIndex][0];
     }
     else
     {
-      currentPos(i) = 0.0;
-      currentVel(i) = 0.0;
+      q_current(i) = 0.0;
+      q_dot_current(i) = 0.0;
     }
   }
+  torqueTaskSimulation(q_rl_vector);
+  // // Compute impedance torques using current target position (runs at mc_rtc frequency)
+  // Eigen::VectorXd desiredTorques = computeImpedanceTorques(currentTargetPosition_, q_current, q_dot_current);
   
-  // Compute impedance torques using current target position (runs at mc_rtc frequency)
-  Eigen::VectorXd desiredTorques = computeImpedanceTorques(currentTargetPosition_, currentPos, currentVel);
+  // std::map<std::string, std::vector<double>> torqueMap;
+  // for(size_t i = 0; i < 10; ++i)
+  // {
+  //   if(i >= mcRtcJointsOrder.size()) {
+  //     mc_rtc::log::error("Trying to access joint[{}] but size is {}", i, mcRtcJointsOrder.size());
+  //     break;
+  //   }
+  //   torqueMap[mcRtcJointsOrder[i]] = {desiredTorques(i)};
+  // }
   
-  std::map<std::string, std::vector<double>> torqueMap;
-  for(size_t i = 0; i < 10; ++i)
-  {
-    if(i >= allJoints_.size()) {
-      mc_rtc::log::error("Trying to access joint[{}] but size is {}", i, allJoints_.size());
-      break;
-    }
-    torqueMap[allJoints_[i]] = {desiredTorques(i)};
-  }
-  
-  torqueTask_->target(torqueMap);
+  // torqueTask_->target(torqueMap);
 }
 
-Eigen::VectorXd RLController::computeImpedanceTorques(const Eigen::VectorXd & desiredPos, 
-                                                     const Eigen::VectorXd & currentPos,
-                                                     const Eigen::VectorXd & currentVel)
-{
-  // Impedance control: τ = Kp * (q_desired - q_current) + Kd * (0 - dq_current)
+// Eigen::VectorXd RLController::computeImpedanceTorques(const Eigen::VectorXd & desiredPos, 
+//                                                      const Eigen::VectorXd & currentPos,
+//                                                      const Eigen::VectorXd & currentVel)
+// {
+//   // Impedance control: τ = Kp * (q_desired - q_current) + Kd * (0 - dq_current)
   
-  Eigen::VectorXd positionError = desiredPos - currentPos;
-  Eigen::VectorXd velocityError = -currentVel;  // Desired velocity is 0
+//   Eigen::VectorXd positionError = desiredPos - currentPos;
+//   Eigen::VectorXd velocityError = -currentVel;  // Desired velocity is 0
   
-  Eigen::VectorXd torques = kp_.cwiseProduct(positionError) + kd_.cwiseProduct(velocityError);
+//   Eigen::VectorXd torques = kp_.cwiseProduct(positionError) + kd_.cwiseProduct(velocityError);
   
-  return torques;
-}
+//   return torques;
+// }
 
 void RLController::startInferenceThread()
 {
@@ -497,3 +741,59 @@ Eigen::VectorXd RLController::getLatestAction()
   }
   return latestAction_;
 } 
+
+void RLController::torqueTaskSimulation(Eigen::VectorXd & currentTargetPosition)
+{
+  auto & robot = robots()[0];
+  auto & real_robot = realRobot(robots()[0].name());
+
+  auto q = real_robot.encoderValues();
+  currentPos = Eigen::VectorXd::Map(q.data(), q.size());
+  // currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
+  // currentPos = currentPos_w_floatingBase.head(dofNumber); // Exclude the floating base part
+  auto vel = real_robot.encoderVelocities();
+  currentVel = Eigen::VectorXd::Map(vel.data(), vel.size());
+  // currentVel_w_floatingBase = Eigen::VectorXd::Map(vel.data(), vel.size());
+  // currentVel = currentVel_w_floatingBase.head(dofNumber); // Exclude the floating base part
+
+  // mc_rtc::log::info("[RLController] Current Position: {}", currentPos);
+  // mc_rtc::log::info("[RLController] Current Velocity: {}", currentVel);
+
+  tau_d = kp_vector.cwiseProduct(currentTargetPosition - currentPos) + kd_vector.cwiseProduct(-currentVel);
+  // mc_rtc::log::info("[RLController] tau_d: {}", tau_d);
+
+  // tau_d_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase); // full vector zeroed
+  // tau_d_w_floatingBase.head(dofNumber) = tau_d; // copy only joint torques
+
+
+  // Simulate the torque task by converting the torque target to an acceleration target
+  rbd::ForwardDynamics fd(real_robot.mb());
+  fd.computeH(real_robot.mb(), real_robot.mbc());
+  fd.computeC(real_robot.mb(), real_robot.mbc());
+  Eigen::MatrixXd M_w_floatingBase = fd.H();
+  Eigen::VectorXd Cg_w_floatingBase = fd.C();
+  Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
+  Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
+  auto extTorqueSensor = robot.device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
+  Eigen::VectorXd externalTorques = Eigen::VectorXd::Zero(dofNumber);
+  Eigen::VectorXd torques = extTorqueSensor.torques();
+  if (torques.hasNaN()) {
+    mc_rtc::log::error("[RLController] External torques contain NaN values, using zero torques instead");
+  } else {
+    externalTorques = torques;
+  }
+  // refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg + externalTorques);
+  refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg);
+  //Choleesky decomposition solveinplace version:
+  // refAccel = M.llt().solve(tau_d - Cg); // This is the acceleration target for the QP solver
+
+  // For the TVM backend
+  // refAccel = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
+  // refAccel.head(dofNumber) = refAccel_w_floatingBase.head(dofNumber);
+  // Keep the full vector for Task
+  // refAccel = refAccel_w_floatingBase; 
+
+
+  // mc_rtc::log::info("[RLController] refAccel: {}", refAccel);
+  similiTorqueTask->refAccel(refAccel);
+}
