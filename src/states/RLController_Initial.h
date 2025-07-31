@@ -14,6 +14,9 @@ struct MC_CONTROL_FSM_STATE_DLLAPI RLController_Initial : mc_control::fsm::State
 
   bool isTorqueTask = false;
 
+  double counter = 0.0;
+  int line_counter = 0;
+
   std::map<std::string, std::vector<double>> postureTarget;
   void torqueTaskSimulation(mc_control::fsm::Controller & ctl);
 };

@@ -11,6 +11,10 @@
 #include <vector>
 #include "api.h"
 
+// Fixed vector sizes
+constexpr int INPUT_SIZE = 35;
+constexpr int OUTPUT_SIZE = 19;
+
 struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 {
   RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
@@ -52,6 +56,20 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd q_cmd; // The commended position send to the internal PD of the robot
   Eigen::VectorXd q_cmd_w_floatingBase; // The commended position send to the internal PD of the robot with floating base
   Eigen::VectorXd tau_cmd_after_pd; // The commended position after PD control
+
+  Eigen::Vector3d baseAngVel; // Base angular velocity
+  Eigen::Vector3d baseAngVelB; // Base angular velocity
+  Eigen::Vector3d rpy; // Roll, pitch, yaw angles of the base
+
+  Eigen::VectorXd parseVector(const std::string& str, size_t size);
+
+  Eigen::VectorXd input_vec;
+  Eigen::VectorXd output_vec;
+
+  std::vector<Eigen::VectorXd> input_vec_array;
+  std::vector<Eigen::VectorXd> output_vec_array;
+
+  int line_number = 0;
 
 private:
 }; 

@@ -17,6 +17,12 @@ void RLController_Initial::start(mc_control::fsm::Controller & ctl)
 bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
 {
   auto & ctl = static_cast<RLController &>(ctl_);
+  auto & real_robot = ctl.realRobot(ctl.robots()[0].name());
+  ctl.baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  ctl.baseAngVelB = real_robot.bodyVelB("pelvis").angular();
+  Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
+  ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
+
   if(ctl.robot().encoderVelocities().empty())
   {
     mc_rtc::log::warning("[RLController_Initial] No encoder velocities available");
@@ -40,7 +46,18 @@ bool RLController_Initial::run(mc_control::fsm::Controller & ctl_)
       ctl.solver().addTask(ctl.similiTorqueTask);
     }
   }
-  
+
+  if(counter >= 0.025)
+  {
+    counter = 0.0;
+    if(line_counter > ctl.line_number) line_counter = 0; // Reset the line counter if it exceeds the number of lines in the file
+    ctl.input_vec = ctl.input_vec_array[line_counter];
+    ctl.output_vec = ctl.output_vec_array[line_counter];
+    line_counter++;
+  }
+
+  counter += ctl.timeStep;
+
   return false;
 }
 

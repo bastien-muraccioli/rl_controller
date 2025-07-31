@@ -5,11 +5,65 @@
 #include <cstddef>
 #include <mc_rtc/logging.h>
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <regex>
+#include <Eigen/Dense>
+
+
+
 
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
                            const mc_rtc::Configuration & config)
 : mc_control::fsm::Controller(rm, dt, config, Backend::TVM)
 {
+
+  input_vec = Eigen::VectorXd::Zero(INPUT_SIZE);
+  output_vec = Eigen::VectorXd::Zero(OUTPUT_SIZE);
+
+  std::ifstream file("/home/bastienm/workspace/src/rl_controller/eval_policy_io.csv");
+    if (!file.is_open()) {
+        mc_rtc::log::error("Error: Cannot open file.");
+    }
+
+    std::string line;
+    std::getline(file, line); // Skip the header
+
+    while (std::getline(file, line)) {
+        ++line_number;
+
+        std::stringstream ss(line);
+        std::string input_str, output_str;
+
+        if (!std::getline(ss, input_str, ';')) continue;
+        if (!std::getline(ss, output_str)) continue;
+
+        // Clean quotes and spaces
+        input_str.erase(remove(input_str.begin(), input_str.end(), '\"'), input_str.end());
+        output_str.erase(remove(output_str.begin(), output_str.end(), '\"'), output_str.end());
+
+        // Parse vectors
+        Eigen::VectorXd input = parseVector(input_str, INPUT_SIZE);
+        input_vec_array.push_back(input);
+        Eigen::VectorXd output = parseVector(output_str, OUTPUT_SIZE);
+        output_vec_array.push_back(output);
+
+        if(line_number==1)
+        {
+          input_vec = input;
+          output_vec = output;
+        }
+
+        // Print the vectors
+        mc_rtc::log::info("Line {}:", line_number);
+        mc_rtc::log::info("Input:  {}", input_vec.transpose());
+        mc_rtc::log::info("Output: {}", output_vec.transpose());
+    }
+
+    file.close();
 
   // // Add constraints
   // contactConstraintTest =std::make_unique<mc_solver::ContactConstraint>(timeStep, mc_solver::ContactConstraint::ContactType::Acceleration);
@@ -73,6 +127,12 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
         }
       }
   }
+
+  auto & real_robot = realRobot(robots()[0].name());
+  baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  baseAngVelB = real_robot.bodyVelB("pelvis").angular();
+  Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
+  rpy = mc_rbdyn::rpyFromMat(baseRot);
   
 
   
@@ -103,6 +163,12 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   { return ddot_qp_w_floatingBase; });
 
   logger().addLogEntry("RLController_tau_cmd_after_pd_positionCtl", [this]() { return tau_cmd_after_pd; });
+
+  logger().addLogEntry("RLController_baseAngVel", [this]() { return baseAngVel; });
+  logger().addLogEntry("RLController_baseAngVelB", [this]() { return baseAngVelB; });
+  logger().addLogEntry("RLController_rpy", [this]() { return rpy; });
+  logger().addLogEntry("RLController_input_vec", [this]() { return input_vec; });
+  logger().addLogEntry("RLController_output_vec", [this]() { return output_vec; });
 
   // datastore().make<std::string>("ControlMode", "Torque");
   datastore().make<std::string>("ControlMode", "Position");
@@ -159,4 +225,22 @@ bool RLController::run()
 void RLController::reset(const mc_control::ControllerResetData & reset_data)
 {
   mc_control::fsm::Controller::reset(reset_data);
+}
+
+Eigen::VectorXd RLController::parseVector(const std::string& str, size_t size) {
+  std::regex num_regex(R"(\[\d+\]:\s*(-?\d+\.?\d*))");
+  std::sregex_iterator iter(str.begin(), str.end(), num_regex);
+  std::sregex_iterator end;
+
+  Eigen::VectorXd vec(size);
+  int i = 0;
+  for (; iter != end && i < static_cast<int>(size); ++iter, ++i) {
+      vec[i] = std::stod((*iter)[1]); // Use capture group 1
+  }
+
+  if (i != size) {
+      mc_rtc::log::warning("Warning: Expected {} values, but got {}", size, i);
+  }
+
+  return vec;
 }
