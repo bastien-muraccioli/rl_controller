@@ -82,7 +82,15 @@ void RLController_Initial::torqueTaskSimulation(mc_control::fsm::Controller & ct
   Eigen::VectorXd Cg_w_floatingBase = fd.C();
   Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(ctl.dofNumber, ctl.dofNumber);
   Eigen::VectorXd Cg = Cg_w_floatingBase.tail(ctl.dofNumber);
-  ctl.refAccel = M.completeOrthogonalDecomposition().solve(ctl.tau_d - Cg);
+
+  auto extTorqueSensor = robot.device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
+  Eigen::VectorXd externalTorques = extTorqueSensor.torques();
+
+  mc_rtc::log::info("[RLController] External torques: {}", externalTorques);
+
+  Eigen::VectorXd content = ctl.tau_d - Cg + externalTorques;
+  ctl.refAccel = M.llt().solve(content);
+  // ctl.refAccel = M.completeOrthogonalDecomposition().solve(content);
   // For the TVM backend
   // ctl.refAccel = Eigen::VectorXd::Zero(ctl.dofNumber_with_floatingBase);
   // ctl.refAccel.head(ctl.dofNumber) = ctl.refAccel_w_floatingBase.head(ctl.dofNumber);

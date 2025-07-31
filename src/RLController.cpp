@@ -134,7 +134,10 @@ bool RLController::run()
 
     Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
 
-    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
+    auto extTorqueSensor = robot().device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
+    Eigen::VectorXd externalTorques = extTorqueSensor.torques();
+
+    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg - externalTorques + kd_vector.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
 
     tau_cmd_after_pd = kd_vector.cwiseProduct(currentPos - q_cmd) - kd_vector.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
     
