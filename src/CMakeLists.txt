@@ -37,19 +37,21 @@ message(STATUS "ONNX Runtime lib: ${ONNXRUNTIME_LIB}")
 
 # ---- Sources ----
 
-set(controller_SRC
+set(SRC
   RLController.cpp
   RLPolicyInterface.cpp
+  RL_utils.cpp
 )
 
-set(controller_HDR
+set(HDR
   RLController.h
   RLPolicyInterface.h
+  RL_utils.h
 )
 
 # ---- Main controller library ----
 
-add_library(${PROJECT_NAME} SHARED ${controller_SRC} ${controller_HDR})
+add_library(${PROJECT_NAME} SHARED ${SRC} ${HDR})
 set_target_properties(${PROJECT_NAME} PROPERTIES COMPILE_FLAGS "-DRLCONTROLLER_EXPORTS")
 target_link_libraries(${PROJECT_NAME} PUBLIC mc_rtc::mc_control_fsm)
 

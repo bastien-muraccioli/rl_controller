@@ -4,10 +4,10 @@
 # If true, the FSM transitions are managed by an external tool
 Managed: false
 # If true and the FSM is self-managed, transitions should be triggered
-StepByStep: false
+StepByStep: true
 # Change idle behaviour, if true the state is kept until transition,
 # otherwise the FSM holds the last state until transition
-IdleKeepState: true
+IdleKeepState: false
 # Where to look for state libraries
 StatesLibraries:
 - "@MC_STATES_DEFAULT_RUNTIME_INSTALL_PREFIX@"
@@ -51,25 +51,18 @@ collisions:
 policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
 use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
 
-# State definitions
-states:
-  RLExecution:
-    # Enable timing logs for performance monitoring
-    log_timing: true
-    timing_log_interval: 1000
-    
-    # Impedance control parameters (optional - can override defaults)
-    # kp: [200, 200, 200, 150, 100, 200, 200, 200, 150, 100]  # Position gains
-    # kd: [10, 10, 10, 8, 5, 10, 10, 10, 8, 5]                # Velocity gains
+log_timing: true
+timing_log_interval: 1000
 
 # Transition from initial state to RL execution
 transitions:
-# - [RLController_Initial, OK, RLExecution, Strict]
-- [RLExecution, OK, RLExecution, Strict]
+- [RL_QP_Torque, OK, RL_QP_Torque, Strict]
+- [RL_QP_Pos, OK, RL_QP_Pos, Strict]
+- [Posture_Torque, OK, Posture_Torque, Strict]
 
 # Start with initial state
 # init: "RLController_Initial" 
-init: "RLExecution" 
+init: "Posture_Torque" 
 
 # ObserverPipelines:
 # - name: MainPipeline                     # - Create a new pipeline
@@ -98,17 +91,101 @@ ObserverPipelines:
       config:
           velocity: encoderVelocities
     
-    - type: Attitude
-      required: true
-      update: true
+    # - type: Attitude
+    #   required: true
+    #   update: true
 
-    - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
-      update: true                         #   update the real robot instance from its results
-      gui: true                            #   Displays the estimated velocity as an arrow (default)
-      config:
-        imuBodySensor: Accelerometer
+    # - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
+    #   update: true                         #   update the real robot instance from its results
+    #   gui: true                            #   Displays the estimated velocity as an arrow (default)
+    #   config:
+    #     imuBodySensor: Accelerometer
 
     - type: BodySensor
       update: true
       config:
         bodySensor: FloatingBase
+
+# kp:
+#     left_hip_yaw_joint: 1500.0
+#     left_hip_roll_joint: 1500.0
+#     left_hip_pitch_joint: 1500.0
+#     left_knee_joint: 1500.0
+#     left_ankle_joint: 1500.0
+#     right_hip_yaw_joint: 1500.0
+#     right_hip_roll_joint: 1500.0
+#     right_hip_pitch_joint: 1500.0
+#     right_knee_joint: 1500.0
+#     right_ankle_joint: 1500.0
+#     torso_joint: 200.0
+#     left_shoulder_pitch_joint: 200.0
+#     left_shoulder_roll_joint: 100.0
+#     left_shoulder_yaw_joint: 100.0
+#     left_elbow_joint: 200.0
+#     right_shoulder_pitch_joint: 200.0
+#     right_shoulder_roll_joint: 100.0
+#     right_shoulder_yaw_joint: 100.0
+#     right_elbow_joint: 200.0
+
+# kd:
+#     left_hip_yaw_joint: 25.0
+#     left_hip_roll_joint: 25.0
+#     left_hip_pitch_joint: 25.0
+#     left_knee_joint: 25.0
+#     left_ankle_joint: 25.0
+#     right_hip_yaw_joint: 25.0
+#     right_hip_roll_joint: 25.0
+#     right_hip_pitch_joint: 25.0
+#     right_knee_joint: 25.0
+#     right_ankle_joint: 25.0
+#     torso_joint: 6.0
+#     left_shoulder_pitch_joint: 2.0
+#     left_shoulder_roll_joint: 2.0
+#     left_shoulder_yaw_joint: 2.0
+#     left_elbow_joint: 2.0
+#     right_shoulder_pitch_joint: 2.0
+#     right_shoulder_roll_joint: 2.0
+#     right_shoulder_yaw_joint: 2.0
+#     right_elbow_joint: 2.0
+
+kp:
+    left_hip_yaw_joint: 100.0
+    left_hip_roll_joint: 100.0
+    left_hip_pitch_joint: 100.0
+    left_knee_joint: 100.0
+    left_ankle_joint: 20.0
+    right_hip_yaw_joint: 100.0
+    right_hip_roll_joint: 100.0
+    right_hip_pitch_joint: 100.0
+    right_knee_joint: 100.0
+    right_ankle_joint: 20.0
+    torso_joint: 100.0
+    left_shoulder_pitch_joint: 100.0
+    left_shoulder_roll_joint: 100.0
+    left_shoulder_yaw_joint: 100.0
+    left_elbow_joint: 100.0
+    right_shoulder_pitch_joint: 100.0
+    right_shoulder_roll_joint: 100.0
+    right_shoulder_yaw_joint: 100.0
+    right_elbow_joint: 100.0
+
+kd:
+    left_hip_yaw_joint: 10.0
+    left_hip_roll_joint: 10.0
+    left_hip_pitch_joint: 10.0
+    left_knee_joint: 10.0
+    left_ankle_joint: 4.0
+    right_hip_yaw_joint: 10.0
+    right_hip_roll_joint: 10.0
+    right_hip_pitch_joint: 10.0
+    right_knee_joint: 10.0
+    right_ankle_joint: 4.0
+    torso_joint: 10.0
+    left_shoulder_pitch_joint: 5.0
+    left_shoulder_roll_joint: 5.0
+    left_shoulder_yaw_joint: 5.0
+    left_elbow_joint: 5.0
+    right_shoulder_pitch_joint: 5.0
+    right_shoulder_roll_joint: 5.0
+    right_shoulder_yaw_joint: 5.0
+    right_elbow_joint: 5.0

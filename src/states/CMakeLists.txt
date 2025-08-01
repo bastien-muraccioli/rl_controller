@@ -1,10 +1,13 @@
 add_fsm_state_simple(RLController_Initial)
-add_fsm_state_simple(RLExecution)
+add_fsm_state_simple(RL_QP_Torque)
+add_fsm_state_simple(RL_QP_Pos)
+add_fsm_state_simple(Posture_Torque)
 
-set(FSM_STATES RLController_Initial RLExecution)
+set(FSM_STATES RLController_Initial RL_QP_Torque RL_QP_Pos Posture_Torque)
 
 foreach(state ${FSM_STATES})
   message(STATUS "Configuring FSM target: ${state}")
+  target_sources(${state} PRIVATE ../RL_utils.cpp)
   target_include_directories(${state} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
   target_link_libraries(${state} PRIVATE ${ONNXRUNTIME_LIB})
 endforeach()

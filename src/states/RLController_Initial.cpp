@@ -14,7 +14,6 @@ void RLController_Initial::start(mc_control::fsm::Controller & ctl)
 
 bool RLController_Initial::run(mc_control::fsm::Controller & ctl)
 {
-  // Immediately transition to RLExecution state
   output("OK");
   return true;
 }
