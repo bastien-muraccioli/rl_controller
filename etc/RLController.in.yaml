@@ -1,3 +1,4 @@
+
 ---
 # RLController FSM Configuration
 # Backend: TVM
@@ -32,8 +33,8 @@ collisions:
 # Basic constraints
 # constraints:
 #   # - type: "contact"
-#   - type: "dynamics
-#     damper: [0.1, 0.01, 0.5]
+  # - type: "dynamics
+  #   damper: [0.1, 0.01, 0.5]
   # - type: "compoundJoint"
 
 # Initial contacts (both feet on ground)
@@ -59,10 +60,14 @@ transitions:
 - [RL_QP_Torque, OK, RL_QP_Torque, Strict]
 - [RL_QP_Pos, OK, RL_QP_Pos, Strict]
 - [Posture_Torque, OK, Posture_Torque, Strict]
+- [Posture_Pos, OK, Posture_Pos, Strict]
+- [PureRL_Torque, OK, PureRL_Torque, Strict]
+- [PureRL_Pos, OK, PureRL_Pos, Strict]
 
 # Start with initial state
 # init: "RLController_Initial" 
-init: "Posture_Torque" 
+# init: "Posture_Torque" 
+init: "Posture_Pos"
 
 # ObserverPipelines:
 # - name: MainPipeline                     # - Create a new pipeline
@@ -106,47 +111,47 @@ ObserverPipelines:
       config:
         bodySensor: FloatingBase
 
-# kp:
-#     left_hip_yaw_joint: 1500.0
-#     left_hip_roll_joint: 1500.0
-#     left_hip_pitch_joint: 1500.0
-#     left_knee_joint: 1500.0
-#     left_ankle_joint: 1500.0
-#     right_hip_yaw_joint: 1500.0
-#     right_hip_roll_joint: 1500.0
-#     right_hip_pitch_joint: 1500.0
-#     right_knee_joint: 1500.0
-#     right_ankle_joint: 1500.0
-#     torso_joint: 200.0
-#     left_shoulder_pitch_joint: 200.0
-#     left_shoulder_roll_joint: 100.0
-#     left_shoulder_yaw_joint: 100.0
-#     left_elbow_joint: 200.0
-#     right_shoulder_pitch_joint: 200.0
-#     right_shoulder_roll_joint: 100.0
-#     right_shoulder_yaw_joint: 100.0
-#     right_elbow_joint: 200.0
+high_kp:
+    left_hip_yaw_joint: 1500.0
+    left_hip_roll_joint: 1500.0
+    left_hip_pitch_joint: 1500.0
+    left_knee_joint: 1500.0
+    left_ankle_joint: 1500.0
+    right_hip_yaw_joint: 1500.0
+    right_hip_roll_joint: 1500.0
+    right_hip_pitch_joint: 1500.0
+    right_knee_joint: 1500.0
+    right_ankle_joint: 1500.0
+    torso_joint: 200.0
+    left_shoulder_pitch_joint: 200.0
+    left_shoulder_roll_joint: 100.0
+    left_shoulder_yaw_joint: 100.0
+    left_elbow_joint: 200.0
+    right_shoulder_pitch_joint: 200.0
+    right_shoulder_roll_joint: 100.0
+    right_shoulder_yaw_joint: 100.0
+    right_elbow_joint: 200.0
 
-# kd:
-#     left_hip_yaw_joint: 25.0
-#     left_hip_roll_joint: 25.0
-#     left_hip_pitch_joint: 25.0
-#     left_knee_joint: 25.0
-#     left_ankle_joint: 25.0
-#     right_hip_yaw_joint: 25.0
-#     right_hip_roll_joint: 25.0
-#     right_hip_pitch_joint: 25.0
-#     right_knee_joint: 25.0
-#     right_ankle_joint: 25.0
-#     torso_joint: 6.0
-#     left_shoulder_pitch_joint: 2.0
-#     left_shoulder_roll_joint: 2.0
-#     left_shoulder_yaw_joint: 2.0
-#     left_elbow_joint: 2.0
-#     right_shoulder_pitch_joint: 2.0
-#     right_shoulder_roll_joint: 2.0
-#     right_shoulder_yaw_joint: 2.0
-#     right_elbow_joint: 2.0
+high_kd:
+    left_hip_yaw_joint: 25.0
+    left_hip_roll_joint: 25.0
+    left_hip_pitch_joint: 25.0
+    left_knee_joint: 25.0
+    left_ankle_joint: 25.0
+    right_hip_yaw_joint: 25.0
+    right_hip_roll_joint: 25.0
+    right_hip_pitch_joint: 25.0
+    right_knee_joint: 25.0
+    right_ankle_joint: 25.0
+    torso_joint: 6.0
+    left_shoulder_pitch_joint: 2.0
+    left_shoulder_roll_joint: 2.0
+    left_shoulder_yaw_joint: 2.0
+    left_elbow_joint: 2.0
+    right_shoulder_pitch_joint: 2.0
+    right_shoulder_roll_joint: 2.0
+    right_shoulder_yaw_joint: 2.0
+    right_elbow_joint: 2.0
 
 kp:
     left_hip_yaw_joint: 100.0

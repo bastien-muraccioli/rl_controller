@@ -11,7 +11,7 @@ void Posture_Torque::start(mc_control::fsm::Controller & ctl_)
   mc_rtc::log::info("Posture_Torque state started");
 
   ctl.datastore().get<std::string>("ControlMode") = "Torque";
-  ctl.useQP = true;
+  ctl.static_pos = true;
 
   mc_rtc::log::success("Posture_Torque state initialization completed");
 
@@ -20,9 +20,6 @@ void Posture_Torque::start(mc_control::fsm::Controller & ctl_)
 
 bool Posture_Torque::run(mc_control::fsm::Controller & ctl_)
 { 
-  auto & ctl = static_cast<RLController&>(ctl_);
-  ctl.torqueTaskSimulation(ctl.q_zero_vector);
-
   return false;
 }
 

@@ -50,6 +50,11 @@ struct RLController : public mc_control::fsm::Controller
   Eigen::VectorXd kp_vector;
   Eigen::VectorXd kd_vector;
 
+  std::map<std::string, double> high_kp;
+  std::map<std::string, double> high_kd;
+  Eigen::VectorXd high_kp_vector;
+  Eigen::VectorXd high_kd_vector;
+
   size_t dofNumber_with_floatingBase = 0; // Number of degrees of freedom in the robot
   size_t dofNumber = 0; // Number of degrees of freedom in the robot without floating base
 
@@ -125,6 +130,8 @@ struct RLController : public mc_control::fsm::Controller
 
   //QP 
   bool useQP = true;
+
+  bool static_pos = false; // Static position control flag
 
   void logging();
 
