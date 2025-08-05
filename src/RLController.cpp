@@ -218,6 +218,9 @@ void RLController::logging()
   logger().addLogEntry("RLController_legVel", [this]() { return legVel; });
   // legAction
   logger().addLogEntry("RLController_legAction", [this]() { return legAction; });
+
+  gui()->addElement({"FSM", "Options"},
+  mc_rtc::gui::Checkbox("External torques", externalTorques_));
 }
 
 RLController::~RLController()
@@ -807,8 +810,10 @@ void RLController::torqueTaskSimulation(Eigen::VectorXd & currentTargetPosition)
   } else {
     externalTorques = torques;
   }
-  // refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg + externalTorques);
-  refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg);
+  if (externalTorques_)
+    refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg + externalTorques);
+  else
+    refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg);
   //Choleesky decomposition solveinplace version:
   // refAccel = M.llt().solve(tau_d - Cg); // This is the acceleration target for the QP solver
 

@@ -99,8 +99,9 @@ struct RLController : public mc_control::fsm::Controller
   bool targetPositionValid_;               // Flag to check if we have a valid target
   static constexpr double INFERENCE_PERIOD_MS = 25.0;  // 40Hz = 25ms period
   
-  // Eigen::VectorXd kp_;
-  // Eigen::VectorXd kd_;
+  // Options
+  bool externalTorques_ = false; // Flag to enable/disable external torques
+
   
   // threading
   std::unique_ptr<std::thread> inferenceThread_;
