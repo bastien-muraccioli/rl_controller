@@ -32,6 +32,8 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   // tau_d_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
   kp_vector = Eigen::VectorXd::Zero(dofNumber);
   kd_vector = Eigen::VectorXd::Zero(dofNumber);
+  high_kp_vector = Eigen::VectorXd::Zero(dofNumber);
+  high_kd_vector = Eigen::VectorXd::Zero(dofNumber);
   currentPos = Eigen::VectorXd::Zero(dofNumber);
   currentVel = Eigen::VectorXd::Zero(dofNumber);
   // currentPos_w_floatingBase = Eigen::VectorXd::Zero(dofNumber_with_floatingBase);
@@ -609,33 +611,33 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     inferenceCounter++;
     
     // if(inferenceCounter % 10 == 0) { // Log every 10 inferences (0.25 seconds at 40Hz)
-      mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-      mc_rtc::log::info("Policy Input (35 obs): [");
-      for(int i = 0; i < 35; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
-      }
-      mc_rtc::log::info("]");
-      mc_rtc::log::info("Policy Output Raw (dofNumber ManiSkill order): [");
-      for(int i = 0; i < dofNumber; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, action(i));
-      }
-      mc_rtc::log::info("]");
-      mc_rtc::log::info("Policy Output Reordered (dofNumber mc_rtc order): [");
-      for(int i = 0; i < dofNumber; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, a_vector(i));
-      }
-      mc_rtc::log::info("]");
-      mc_rtc::log::info("Blended Target Position (dofNumber): [");
-      for(int i = 0; i < dofNumber; ++i) {
-        mc_rtc::log::info("  [{}]: {:.6f}", i, q_rl_vector(i));
-      }
-      mc_rtc::log::info("]");
-      // mc_rtc::log::info("Reference Position q_ref (dofNumber): [");
-      // for(int i = 0; i < dofNumber; ++i) {
-      //   mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
-      // }
-      // mc_rtc::log::info("]");
-      mc_rtc::log::info("=== End Policy I/O ===");
+    mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
+    mc_rtc::log::info("Policy Input (35 obs): [");
+    for(int i = 0; i < 35; ++i) {
+      mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
+    }
+    mc_rtc::log::info("]");
+    mc_rtc::log::info("Policy Output Raw (dofNumber ManiSkill order): [");
+    for(int i = 0; i < dofNumber; ++i) {
+      mc_rtc::log::info("  [{}]: {:.6f}", i, action(i));
+    }
+    mc_rtc::log::info("]");
+    mc_rtc::log::info("Policy Output Reordered (dofNumber mc_rtc order): [");
+    for(int i = 0; i < dofNumber; ++i) {
+      mc_rtc::log::info("  [{}]: {:.6f}", i, a_vector(i));
+    }
+    mc_rtc::log::info("]");
+    mc_rtc::log::info("Blended Target Position (dofNumber): [");
+    for(int i = 0; i < dofNumber; ++i) {
+      mc_rtc::log::info("  [{}]: {:.6f}", i, q_rl_vector(i));
+    }
+    mc_rtc::log::info("]");
+    // mc_rtc::log::info("Reference Position q_ref (dofNumber): [");
+    // for(int i = 0; i < dofNumber; ++i) {
+    //   mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
+    // }
+    // mc_rtc::log::info("]");
+    mc_rtc::log::info("=== End Policy I/O ===");
   }
   
   // Always apply impedance control at mc_rtc frequency using current target position
