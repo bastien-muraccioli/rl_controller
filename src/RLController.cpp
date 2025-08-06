@@ -565,6 +565,8 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     // Get current observation for logging
     Eigen::VectorXd currentObs = getCurrentObservation();
     
+    // Update lastActions_
+    a_before_vector = a_vector;
     // Run new inference and update target position
     a_vector = reorderJointsFromManiskill(action);
     
@@ -592,9 +594,7 @@ void RLController::applyAction(const Eigen::VectorXd & action)
         mc_rtc::log::error("Joint {} not found in mcRtcJointsOrder", joint);
       }
     }
-    
-    // Update lastActions_ for next iteration
-    a_before_vector = a_vector;
+
     a_maniskillOrder = reorderJointsToManiskill(a_vector);
     
     // Update timing
