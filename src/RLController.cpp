@@ -231,110 +231,86 @@ RLController::~RLController()
 
 bool RLController::run()
 {
-  // Update the solver depending on the control mode
+  bool run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
+  robot().forwardKinematics();
+  robot().forwardVelocity();
+  robot().forwardAcceleration();
+
+  auto q = robot().encoderValues();
+  currentPos = Eigen::VectorXd::Map(q.data(), q.size());
+  auto vel = robot().encoderVelocities();
+  currentVel = Eigen::VectorXd::Map(vel.data(), vel.size());
+
   auto ctrl_mode = datastore().get<std::string>("ControlMode");
-  if (static_pos)
-  {
-    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-    robot().forwardKinematics();
-    robot().forwardVelocity();
-    robot().forwardAcceleration();
+  if (ctrl_mode.compare("Position") == 0)
+    return positionControl(run);
+  else // ctrl_mode.compare("Torque") == 0
+    return torqueControl(run);
+}
 
+bool RLController::positionControl(bool run)
+{
+  rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
+  ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
 
-    Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
+  // Use robot instead of realrobot because we are after the QP
+  rbd::ForwardDynamics fd(robot().mb());
+  fd.computeH(robot().mb(), robot().mbc());
+  fd.computeC(robot().mb(), robot().mbc());
+  Eigen::MatrixXd M_w_floatingBase = fd.H();
+  Eigen::VectorXd Cg_w_floatingBase = fd.C();
+  Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
+  Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
 
+  Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
+
+  if (!static_pos)
+    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel));
+  else
     q_cmd = currentPos + Kp_inv*(high_kp_vector*(q_zero_vector - currentPos) - currentVel.cwiseProduct(high_kd_vector - kd_vector));
+  
+  auto q = robot().mbc().q;
 
-    if (ctrl_mode.compare("Position") == 0)
+  if (useQP)
+  {
+    size_t i = 0;
+    for (const auto &joint_name : jointNames)
     {
-      auto q = robot().mbc().q;
-      
-      size_t i = 0;
-      for (const auto &joint_name : jointNames)
-      {
-        q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
-        i++;
-      }
-
-      robot().mbc().q = q; // Update the mbc with the new position
+      q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
+      i++;
     }
-    else
-    { 
-      tau_cmd_after_pd = kd_vector.cwiseProduct(currentPos - q_cmd) - kd_vector.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
-      auto tau = robot().mbc().jointTorque;
 
-      size_t i = 0;
-      for (const auto &joint_name : jointNames)
-      {
-        tau[robot().jointIndexByName(joint_name)][0] = tau_cmd_after_pd[i];
-        i++;
-      }
-
-      robot().mbc().jointTorque = tau; // Update the mbc with the new position
-    }
+    robot().mbc().q = q; // Update the mbc with the new position
     return run;
   }
-  if (ctrl_mode.compare("Position") == 0) {
-    auto run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-    robot().forwardKinematics();
-    robot().forwardVelocity();
-    robot().forwardAcceleration();
-    rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
-    ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
-
-    // Use robot instead of realrobot because we are after the QP
-    rbd::ForwardDynamics fd(robot().mb());
-    fd.computeH(robot().mb(), robot().mbc());
-    fd.computeC(robot().mb(), robot().mbc());
-    Eigen::MatrixXd M_w_floatingBase = fd.H();
-    Eigen::VectorXd Cg_w_floatingBase = fd.C();
-    Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
-    Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
-
-    Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
-
-    q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
-    
-    auto q = robot().mbc().q;
-
-    if (useQP)
+  else
+  {
+    size_t i = 0;
+    for (const auto &joint_name : jointNames)
     {
-      size_t i = 0;
-      for (const auto &joint_name : jointNames)
-      {
-        q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
-        i++;
-      }
-
-      robot().mbc().q = q; // Update the mbc with the new position
-      return run;
-    }
-    else
-    {
-      size_t i = 0;
-      for (const auto &joint_name : jointNames)
-      {
-        q[robot().jointIndexByName(joint_name)][0] = q_rl_vector[i];
-        i++;
-      }
-
-      robot().mbc().q = q; // Update the mbc with the new position
-      return true;
+      q[robot().jointIndexByName(joint_name)][0] = q_rl_vector[i];
+      i++;
     }
 
-  } 
+    robot().mbc().q = q; // Update the mbc with the new position
+    return true;
+  }
+}
+
+bool RLController::torqueControl(bool run)
+{
   if (useQP == false)
   {
-    mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-    robot().forwardKinematics();
-    robot().forwardVelocity();
-    robot().forwardAcceleration();
-    auto q = robot().encoderValues();
-    currentPos = Eigen::VectorXd::Map(q.data(), q.size());
-    auto vel = robot().encoderVelocities();
-    currentVel = Eigen::VectorXd::Map(vel.data(), vel.size());
     auto tau = robot().mbc().jointTorque;
-    tau_d = kp_vector.cwiseProduct(q_zero_vector - currentPos) + kd_vector.cwiseProduct(-currentVel);
+    if (!static_pos)
+      tau_d = kp_vector.cwiseProduct(q_rl_vector - currentPos) - kd_vector.cwiseProduct(currentVel);
+    else
+    {
+      Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
+      mc_rtc::log::warning(q_zero_vector.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));
+      q_cmd = currentPos + Kp_inv*(high_kp_vector*(q_zero_vector - currentPos) - currentVel.cwiseProduct(high_kd_vector - kd_vector));
+      tau_d = high_kp_vector.cwiseProduct(q_cmd - currentPos) - high_kd_vector.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
+    }
     
     size_t i = 0;
     for (const auto &joint_name : jointNames)
@@ -346,9 +322,9 @@ bool RLController::run()
     robot().mbc().jointTorque = tau; // Update the mbc with the new position
     return true;
   }
-  return mc_control::fsm::Controller::run(
-      mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-
+  else { 
+    return run;
+  }
 }
 
 void RLController::reset(const mc_control::ControllerResetData & reset_data)

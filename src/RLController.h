@@ -136,6 +136,9 @@ struct RLController : public mc_control::fsm::Controller
 
   void logging();
 
+  bool positionControl(bool run);
+  bool torqueControl(bool run);
+
   Eigen::VectorXd getCurrentObservation();
   void applyAction(const Eigen::VectorXd & action);
   

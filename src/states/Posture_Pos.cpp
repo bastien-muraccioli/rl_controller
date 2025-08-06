@@ -12,6 +12,7 @@ void Posture_Pos::start(mc_control::fsm::Controller & ctl_)
 
   ctl.datastore().get<std::string>("ControlMode") = "Position";
   ctl.static_pos = true;
+  ctl.useQP = false;
 
   mc_rtc::log::success("Posture_Pos state initialization completed");
 

@@ -12,6 +12,7 @@ void Posture_Torque::start(mc_control::fsm::Controller & ctl_)
 
   ctl.datastore().get<std::string>("ControlMode") = "Torque";
   ctl.static_pos = true;
+  ctl.useQP = false;
 
   mc_rtc::log::success("Posture_Torque state initialization completed");
 

@@ -67,7 +67,7 @@ transitions:
 # Start with initial state
 # init: "RLController_Initial" 
 # init: "Posture_Torque" 
-init: "PureRL_Pos"
+init: "PureRL_Pos"  # Start with PureRL_Torque state
 
 # ObserverPipelines:
 # - name: MainPipeline                     # - Create a new pipeline
