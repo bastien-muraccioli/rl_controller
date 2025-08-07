@@ -13,26 +13,27 @@ void PureRL_FDTask_Pos::start(mc_control::fsm::Controller & ctl)
   ctl_rl.useQP = false;
   ctl_rl.taskType = 1;
 
-  ctl.FDTask->stiffness(0.0);
-  ctl.FDTask->damping(0.0);
-  ctl.FDTaskComputation();
-  ctl.FDTask->refAccel(ctl.refAccel);
-  ctl.solver().addTask(ctl.FDTask);
+  ctl_rl.FDTask->stiffness(0.0);
+  ctl_rl.FDTask->damping(0.0);
+  ctl_rl.TasksSimulation(ctl_rl.q_zero_vector);
+  ctl_rl.FDTask->refAccel(ctl_rl.refAccel);
+  ctl_rl.solver().addTask(ctl_rl.FDTask);
 
   mc_rtc::log::info("using Pure RL (no QP) and Position control");
 }
 
 bool PureRL_FDTask_Pos::run(mc_control::fsm::Controller & ctl)
 {
+  auto & ctl_rl = static_cast<RLController&>(ctl);
   utils::run_rl_state(ctl, "PureRL_FDTask_Pos");
-  ctl.FDTask->refAccel(ctl.refAccel);
+  ctl_rl.FDTask->refAccel(ctl_rl.refAccel);
   return false;
 }
 
 void PureRL_FDTask_Pos::teardown(mc_control::fsm::Controller & ctl)
 {
-  auto & ctl = static_cast<RLController &>(ctl_);
-  ctl.solver().removeTask(ctl.FDTask);
+  auto & ctl_rl = static_cast<RLController &>(ctl);
+  ctl_rl.solver().removeTask(ctl_rl.FDTask);
   utils::teardown_rl_state(ctl, "PureRL_FDTask_Pos");
 }
 

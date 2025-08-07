@@ -55,11 +55,8 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   FDTask->stiffness(0.0);
   FDTask->damping(0.0);
   FDTask->refAccel(refAccel);
-  solver().addTask(FDTask);
 
   torqueTask = std::make_shared<mc_tasks::TorqueTask>(solver(), robot().robotIndex());
-  torqueTask->weight(0.0); //will activate later if necessary (if activated, deactivate FDTask)
-  solver().addTask(torqueTask);
 
   // Get the gains from the configuration or set default values
   kp = config("kp");
@@ -116,22 +113,6 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   legPos = Eigen::VectorXd::Zero(10);
   legVel = Eigen::VectorXd::Zero(10);
   legAction = Eigen::VectorXd::Zero(10);
-
-  // // Capture current joint positions as reference (default position)
-  // const auto & robot = this->robot();
-  // for(size_t i = 0; i < mcRtcJointsOrder.size(); ++i)
-  // {
-  //   if(robot.hasJoint(mcRtcJointsOrder[i]))
-  //   {
-  //     auto jIndex = robot.jointIndexByName(mcRtcJointsOrder[i]);
-  //     q_zero_vector(i) = robot.mbc().q[jIndex][0];
-  //   }
-  //   else
-  //   {
-  //     mc_rtc::log::warning("Joint {} not found in robot model during reference initialization", mcRtcJointsOrder[i]);
-  //     q_zero_vector(i) = 0.0;
-  //   }
-  // }
   
   mc_rtc::log::info("Reference position initialized with {} joints", q_zero_vector.size());
   // mc_rtc::log::info("Reference positions: {}", q_ref_.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));

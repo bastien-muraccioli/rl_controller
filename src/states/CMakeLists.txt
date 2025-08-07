@@ -17,7 +17,7 @@ set(FSM_STATES RLController_Initial RL_QP_FDTask_Torque RL_QP_FDTask_Pos Posture
 
 foreach(state ${FSM_STATES})
   message(STATUS "Configuring FSM target: ${state}")
-  target_sources(${state} PRIVATE ../RL_utils.cpp)
+  target_sources(${state} PRIVATE ../utils.cpp)
   target_include_directories(${state} PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
   target_link_libraries(${state} PRIVATE ${ONNXRUNTIME_LIB})
 endforeach()

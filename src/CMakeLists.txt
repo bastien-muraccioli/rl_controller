@@ -40,13 +40,13 @@ message(STATUS "ONNX Runtime lib: ${ONNXRUNTIME_LIB}")
 set(SRC
   RLController.cpp
   RLPolicyInterface.cpp
-  RL_utils.cpp
+  utils.cpp
 )
 
 set(HDR
   RLController.h
   RLPolicyInterface.h
-  RL_utils.h
+  utils.h
 )
 
 # ---- Main controller library ----

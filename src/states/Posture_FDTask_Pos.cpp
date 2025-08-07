@@ -25,7 +25,7 @@ bool Posture_FDTask_Pos::run(mc_control::fsm::Controller & ctl_)
   return false;
 }
 
-void PostureFDTask_Pos::teardown(mc_control::fsm::Controller & ctl_)
+void Posture_FDTask_Pos::teardown(mc_control::fsm::Controller & ctl_)
 {
 }
 

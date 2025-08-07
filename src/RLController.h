@@ -4,7 +4,7 @@
 #include <mc_control/fsm/Controller.h>
 #include <mc_tasks/TorqueTask.h>
 #include "RLPolicyInterface.h"
-#include "RL_utils.h"
+#include "utils.h"
 
 #include <memory>
 #include <Eigen/Dense>
