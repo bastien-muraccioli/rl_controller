@@ -37,17 +37,6 @@ collisions:
   #   damper: [0.1, 0.01, 0.5]
   # - type: "compoundJoint"
 
-# Initial contacts (both feet on ground)
-# contacts:
-#   - r1: "h1"
-#     r2: "ground" 
-#     r1Surface: "LeftFootCenter"
-#     r2Surface: "AllGround"
-#   - r1: "h1"
-#     r2: "ground"
-#     r1Surface: "RightFootCenter" 
-#     r2Surface: "AllGround"
-
 # RL Controller specific configuration
 policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
 use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
@@ -57,17 +46,24 @@ timing_log_interval: 1000
 
 # Transition from initial state to RL execution
 transitions:
-- [RL_QP_Torque, OK, RL_QP_Torque, Strict]
-- [RL_QP_Pos, OK, RL_QP_Pos, Strict]
-- [Posture_Torque, OK, Posture_Torque, Strict]
-- [Posture_Pos, OK, Posture_Pos, Strict]
-- [PureRL_Torque, OK, PureRL_Torque, Strict]
-- [PureRL_Pos, OK, PureRL_Pos, Strict]
+- [RL_QP_FDTask_Torque, OK, RL_QP_FDTask_Torque, Strict]
+- [RL_QP_FDTask_Pos, OK, RL_QP_FDTask_Pos, Strict]
+- [RL_QP_TorqueTask_Torque, OK, RL_QP_TorqueTask_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, OK, RL_QP_TorqueTask_Pos, Strict]
+- [PureRL_FDTask_Torque, OK, PureRL_FDTask_Torque, Strict]
+- [PureRL_FDTask_Pos, OK, PureRL_FDTask_Pos, Strict]
+- [PureRL_TorqueTask_Torque, OK, PureRL_TorqueTask_Torque, Strict]
+- [PureRL_TorqueTask_Pos, OK, PureRL_TorqueTask_Pos, Strict]
+- [Posture_FDTask_Torque, OK, Posture_FDTask_Torque, Strict]
+- [Posture_FDTask_Pos, OK, Posture_FDTask_Pos, Strict]
+- [Posture_TorqueTask_Torque, OK, Posture_TorqueTask_Torque, Strict]
+- [Posture_TorqueTask_Pos, OK, Posture_TorqueTask_Pos, Strict]
+
 
 # Start with initial state
 # init: "RLController_Initial" 
 # init: "Posture_Torque" 
-init: "PureRL_Pos"  # Start with PureRL_Torque state
+init: "Posture_TorqueTask_Pos"  # Start with Posture_Pos state
 
 # ObserverPipelines:
 # - name: MainPipeline                     # - Create a new pipeline

@@ -2,7 +2,7 @@
 
 #include <mc_control/mc_controller.h>
 #include <mc_control/fsm/Controller.h>
-// #include <mc_tasks/TorqueTask.h>
+#include <mc_tasks/TorqueTask.h>
 #include "RLPolicyInterface.h"
 #include "RL_utils.h"
 
@@ -25,10 +25,11 @@ struct RLController : public mc_control::fsm::Controller
 
   void reset(const mc_control::ControllerResetData & reset_data) override;
 
-  void torqueTaskSimulation(Eigen::VectorXd & currentTargetPosition);
+  void TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool highGains = false);
 
   std::shared_ptr<mc_tasks::PostureTask> FSMPostureTask;
-  std::shared_ptr<mc_tasks::PostureTask> similiTorqueTask;
+  std::shared_ptr<mc_tasks::PostureTask> FDTask;
+  std::shared_ptr<mc_tasks::TorqueTask> torqueTask;
   // std::shared_ptr<mc_tasks::TorqueTask> torqueTask_;
 
   Eigen::VectorXd refAccel;
@@ -45,6 +46,8 @@ struct RLController : public mc_control::fsm::Controller
   std::vector<std::string> jointNames;
   std::map<std::string, std::vector<double>> postureTarget;
 
+  std::map<std::string, std::vector<double>> torque_target; // Target torques for the torque task;
+
   std::map<std::string, double> kp;
   std::map<std::string, double> kd;
   Eigen::VectorXd kp_vector;
@@ -54,6 +57,11 @@ struct RLController : public mc_control::fsm::Controller
   std::map<std::string, double> high_kd;
   Eigen::VectorXd high_kp_vector;
   Eigen::VectorXd high_kd_vector;
+
+  bool compensateExternalForces = false;
+  bool compensateExternalForcesHasChanged = false;
+
+  int taskType = 1; // 0: use torqueTask, 1: use FDTask
 
   size_t dofNumber_with_floatingBase = 0; // Number of degrees of freedom in the robot
   size_t dofNumber = 0; // Number of degrees of freedom in the robot without floating base
@@ -98,11 +106,7 @@ struct RLController : public mc_control::fsm::Controller
   Eigen::VectorXd q_rl_vector;  // Hold target position between inference calls
   bool targetPositionValid_;               // Flag to check if we have a valid target
   static constexpr double INFERENCE_PERIOD_MS = 25.0;  // 40Hz = 25ms period
-  
-  // Options
-  bool externalTorques_ = false; // Flag to enable/disable external torques
-
-  
+    
   // threading
   std::unique_ptr<std::thread> inferenceThread_;
   std::mutex actionMutex_;

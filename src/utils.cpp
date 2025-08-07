@@ -1,6 +1,6 @@
-#include "RL_utils.h"
+#include "utils.h"
 
-namespace RL_utils
+namespace utils
 {
   void start_rl_state(mc_control::fsm::Controller & ctl_, std::string state_name)
   {
@@ -34,7 +34,7 @@ namespace RL_utils
     );
   }
 
-  bool run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_name)
+  void run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_name)
   {
     auto & ctl = static_cast<RLController&>(ctl_);
     
@@ -85,8 +85,6 @@ namespace RL_utils
       Eigen::VectorXd zeroAction = Eigen::VectorXd::Zero(19);
       ctl.applyAction(zeroAction);
     }
-    
-    return false;
   }
 
   void teardown_rl_state(mc_control::fsm::Controller & ctl_, std::string state_name)

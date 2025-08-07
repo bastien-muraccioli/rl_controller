@@ -2,7 +2,7 @@
 
 #include "RLController.h"
 
-namespace RL_utils
+namespace utils
 {
     // RL states
     void start_rl_state(mc_control::fsm::Controller & ctl_, std::string state_name);

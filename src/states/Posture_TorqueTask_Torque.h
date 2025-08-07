@@ -3,7 +3,7 @@
 #include <mc_control/fsm/State.h>
 #include "../RL_utils.h"
 
-struct MC_CONTROL_FSM_STATE_DLLAPI Posture_Pos : mc_control::fsm::State
+struct MC_CONTROL_FSM_STATE_DLLAPI Posture_TorqueTask_Torque : mc_control::fsm::State
 {
   void configure(const mc_rtc::Configuration & config) override;
 
