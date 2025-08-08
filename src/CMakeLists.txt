@@ -41,12 +41,14 @@ set(SRC
   RLController.cpp
   RLPolicyInterface.cpp
   utils.cpp
+  PolicySimulatorHandling.cpp
 )
 
 set(HDR
   RLController.h
   RLPolicyInterface.h
   utils.h
+  PolicySimulatorHandling.h
 )
 
 # ---- Main controller library ----

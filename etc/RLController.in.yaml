@@ -1,5 +1,8 @@
-
 ---
+
+Simulator: "Maniskill"
+Used_joints_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] #legs
+
 # RLController FSM Configuration
 # Backend: TVM
 # If true, the FSM transitions are managed by an external tool
