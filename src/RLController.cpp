@@ -17,12 +17,11 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   logTiming_ = config("log_timing");
   timingLogInterval_ = config("timing_log_interval");
 
-  selfCollisionConstraint->setCollisionsDampers(solver(), {1.8, 70.0});
+  selfCollisionConstraint->setCollisionsDampers(solver(), {1.2, 400.0});
   solver().removeConstraintSet(dynamicsConstraint);
   dynamicsConstraint = mc_rtc::unique_ptr<mc_solver::DynamicsConstraint>(
+    // new mc_solver::DynamicsConstraint(robots(), 0, {0.1, 0.01, 0.0, 1.2, 400.0}, 0.9, true));
     new mc_solver::DynamicsConstraint(robots(), 0, timeStep, {0.1, 0.01, 0.5}, 0.9, false, true));
-  // dynamicsConstraint = mc_rtc::unique_ptr<mc_solver::DynamicsConstraint>(
-  //   new mc_solver::DynamicsConstraint(robots(), 0, {0.1, 0.01, 0.0, 1.8, 70.0}, 0.9, true));
   solver().addConstraintSet(dynamicsConstraint);
 
   
@@ -261,13 +260,12 @@ bool RLController::positionControl(bool run) //TODO:only keep basic formula
 
   Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
 
-  if (!static_pos)
+  // if (!static_pos)
     q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel));
-  else
-  {
-    auto content = high_kd_vector - kd_vector;
-    q_cmd = currentPos + Kp_inv*(high_kp_vector*(q_zero_vector - currentPos) - currentVel.cwiseProduct(content)); //
-  }
+  // else
+  // {
+    // q_cmd = currentPos + Kp_inv*(high_kp_vector*(q_zero_vector - currentPos) - currentVel.cwiseProduct(high_kd_vector - kd_vector)); //
+  // }
   auto q = robot().mbc().q;
 
   if (useQP)
@@ -303,16 +301,7 @@ bool RLController::torqueControl(bool run) //TODO:only keep rl -> rest in state
   if (useQP == false)
   {
     auto tau = robot().mbc().jointTorque;
-    if (!static_pos)
-      tau_d = kp_vector.cwiseProduct(q_rl_vector - currentPos) - kd_vector.cwiseProduct(currentVel);
-    else
-    {
-      Eigen::MatrixXd Kp_inv = kp_vector.cwiseInverse().asDiagonal();
-      mc_rtc::log::warning(q_zero_vector.transpose().format(Eigen::IOFormat(3, 0, ", ", "", "", "", "[", "]")));
-      // q_cmd = currentPos + Kp_inv*(high_kp_vector*(q_zero_vector - currentPos) - currentVel.cwiseProduct(high_kd_vector - kd_vector));
-      // tau_d = high_kp_vector.cwiseProduct(q_cmd - currentPos) - high_kd_vector.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
-      tau_d = high_kp_vector.cwiseProduct(q_zero_vector - currentPos) - high_kd_vector.cwiseProduct(currentVel);
-    }
+    tau_d = kp_vector.cwiseProduct(q_rl_vector - currentPos) - kd_vector.cwiseProduct(currentVel);
     
     size_t i = 0;
     for (const auto &joint_name : jointNames)
@@ -579,25 +568,13 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     lastInferenceTime_ = currentTime;
     targetPositionValid_ = true;
     
-    // Detailed logging for policy input/output comparison
     static int inferenceCounter = 0;
     inferenceCounter++;
     
-    // if(inferenceCounter % 10 == 0) { // Log every 10 inferences (0.25 seconds at 40Hz)
     mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
     mc_rtc::log::info("Policy Input (35 obs): [");
     for(int i = 0; i < 35; ++i) {
       mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
-    }
-    mc_rtc::log::info("]");
-    mc_rtc::log::info("Policy Output Raw (dofNumber ManiSkill order): [");
-    for(int i = 0; i < dofNumber; ++i) {
-      mc_rtc::log::info("  [{}]: {:.6f}", i, action(i));
-    }
-    mc_rtc::log::info("]");
-    mc_rtc::log::info("Policy Output Reordered (dofNumber mc_rtc order): [");
-    for(int i = 0; i < dofNumber; ++i) {
-      mc_rtc::log::info("  [{}]: {:.6f}", i, a_vector(i));
     }
     mc_rtc::log::info("]");
     mc_rtc::log::info("Blended Target Position (dofNumber): [");
@@ -605,15 +582,9 @@ void RLController::applyAction(const Eigen::VectorXd & action)
       mc_rtc::log::info("  [{}]: {:.6f}", i, q_rl_vector(i));
     }
     mc_rtc::log::info("]");
-    // mc_rtc::log::info("Reference Position q_ref (dofNumber): [");
-    // for(int i = 0; i < dofNumber; ++i) {
-    //   mc_rtc::log::info("  [{}]: {:.6f}", i, q_ref_(i));
-    // }
-    // mc_rtc::log::info("]");
     mc_rtc::log::info("=== End Policy I/O ===");
   }
   
-  // Always apply impedance control at mc_rtc frequency using current target position
   if(!targetPositionValid_) {
     mc_rtc::log::warning("No valid target position available for impedance control");
     return;
@@ -625,8 +596,6 @@ void RLController::applyAction(const Eigen::VectorXd & action)
   auto & real_robot = realRobot(robots()[0].name());
   auto q = real_robot.encoderValues();
   q_current = Eigen::VectorXd::Map(q.data(), q.size());
-  // currentPos_w_floatingBase = Eigen::VectorXd::Map(q.data(), q.size());
-  // currentPos = currentPos_w_floatingBase.head(dofNumber); // Exclude the floating base part
   auto vel = real_robot.encoderVelocities();
   q_dot_current = Eigen::VectorXd::Map(vel.data(), vel.size());
 
@@ -740,7 +709,7 @@ Eigen::VectorXd RLController::getLatestAction()
   return latestAction_;
 } 
 
-void RLController::TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool highGains) //TODOfalse sauf posture pos
+void RLController::TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool highGains)
 {
   auto & robot = robots()[0];
   auto & real_robot = realRobot(robots()[0].name());
@@ -777,9 +746,10 @@ void RLController::TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool
       Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
       Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
       auto extTorqueSensor = robot.device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
-      Eigen::VectorXd externalTorques = Eigen::VectorXd::Zero(dofNumber);
+      Eigen::VectorXd externalTorques = extTorqueSensor.torques().tail(dofNumber); // Exclude the floating base part
       
-      refAccel = M.completeOrthogonalDecomposition().solve(tau_d - Cg + externalTorques);
+      Eigen::VectorXd content = tau_d - Cg + externalTorques; // Add the external torques to the desired torques
+      refAccel = M.llt().solve(content);
       break;
     }
     default:
