@@ -260,6 +260,7 @@ bool RLController::positionControl(bool run)
   q_cmd = currentPos + Kp_inv*(M*ddot_qp + Cg + kd_vector.cwiseProduct(currentVel));
   
   auto q = robot().mbc().q;
+  auto alpha = robot().mbc().alpha;
 
   if (useQP)
   {
@@ -267,10 +268,12 @@ bool RLController::positionControl(bool run)
     for (const auto &joint_name : jointNames)
     {
       q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
+      alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
       i++;
     }
 
     robot().mbc().q = q; // Update the mbc with the new position
+    // robot().mbc().alpha = alpha; // Update the mbc with the new velocity
     return run;
   }
   else
@@ -279,10 +282,12 @@ bool RLController::positionControl(bool run)
     for (const auto &joint_name : jointNames)
     {
       q[robot().jointIndexByName(joint_name)][0] = q_rl_vector[i];
+      alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
       i++;
     }
 
     robot().mbc().q = q; // Update the mbc with the new position
+    // robot().mbc().alpha = alpha; // Update the mbc with the new velocity
     return true;
   }
 }
