@@ -4,6 +4,7 @@
 #include <mc_rtc/logging.h>
 #include <mc_rbdyn/configuration_io.h>
 #include <chrono>
+#include <cmath>
 
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
                            const mc_rtc::Configuration & config)
@@ -110,19 +111,36 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   shouldStopInference_ = false;
   newObservationAvailable_ = false;
   newActionAvailable_ = false;
-  currentObservation_ = Eigen::VectorXd::Zero(35);
+  currentObservation_ = Eigen::VectorXd::Zero(45);
   currentAction_ = Eigen::VectorXd::Zero(dofNumber);
   latestAction_ = Eigen::VectorXd::Zero(dofNumber);
+  
+  // Initialize new observation components
+  locoMode_ = 0.0;  // Default locomotion mode
+  cmd_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
+  phase_ = 0.0;  // Phase for periodic gait
+  phaseFreq_ = 1.2;  // Phase frequency in Hz
+  startPhase_ = std::chrono::steady_clock::now();  // For phase calculation
   
   std::string policyPath = config("policy_path", std::string(""));
   if(!policyPath.empty())
   {
     mc_rtc::log::info("Loading RL policy from: {}", policyPath);
-    rlPolicy_ = std::make_unique<RLPolicyInterface>(policyPath);
+    try {
+      rlPolicy_ = std::make_unique<RLPolicyInterface>(policyPath);
+      if(rlPolicy_) {
+        mc_rtc::log::success("RL policy loaded successfully");
+      } else {
+        mc_rtc::log::error("RL policy creation failed - policy is null");
+      }
+    } catch(const std::exception& e) {
+      mc_rtc::log::error("Failed to load RL policy: {}", e.what());
+      rlPolicy_ = std::make_unique<RLPolicyInterface>(); // Fallback to dummy policy
+    }
   }
   else
   {
-    mc_rtc::log::warning("No policy_path specified, creating dummy policy");
+    mc_rtc::log::warning("No policy_path specified in config, creating dummy policy");
     rlPolicy_ = std::make_unique<RLPolicyInterface>();
   }
 
@@ -205,6 +223,9 @@ void RLController::logging()
   logger().addLogEntry("RLController_legPos", [this]() { return legPos; });
   logger().addLogEntry("RLController_legVel", [this]() { return legVel; });
   logger().addLogEntry("RLController_legAction", [this]() { return legAction; });
+  logger().addLogEntry("RLController_locoMode", [this]() { return locoMode_; });
+  logger().addLogEntry("RLController_cmd", [this]() { return cmd_; });
+  logger().addLogEntry("RLController_phase", [this]() { return phase_; });
 
   gui()->addElement({"FSM", "Options"},
   mc_rtc::gui::Checkbox("External torques", compensateExternalForces));
@@ -355,11 +376,11 @@ void RLController::initializeAllJoints()
 
 Eigen::VectorXd RLController::getCurrentObservation()
 {
-  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10)]
-  
-  Eigen::VectorXd obs(35);
-  obs = Eigen::VectorXd::Zero(35);
-  
+  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), loco_mode (1), cmd (3), cos(phase) (1), sin(phase) (1), zeros (4)]
+
+  Eigen::VectorXd obs(45);
+  obs = Eigen::VectorXd::Zero(45);
+
   // const auto & robot = this->robot();
 
   auto & robot = robots()[0];
@@ -408,6 +429,27 @@ Eigen::VectorXd RLController::getCurrentObservation()
     }
   }
   obs.segment(25, 10) = legAction;
+  
+  // New observation components for 45-element format
+  
+  // Locomotion mode (1 element) - index 35
+  obs(35) = locoMode_;
+  
+  // Command (3 elements) - indices 36-38: [vx, vy, yaw_rate]
+  obs.segment(36, 3) = cmd_;
+  
+  // Phase components (2 elements) - indices 39-40
+  // Calculate current phase based on time and frequency
+  auto currentTime = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startPhase_);
+  phase_ = fmod(elapsed.count() * 0.001 * phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+  
+  obs(39) = cos(phase_);  // cos(phase)
+  obs(40) = sin(phase_);  // sin(phase)
+  
+  // Zeros (4 elements) - indices 41-44
+  obs.segment(41, 4).setZero();
+  
   return obs;
 }
 
@@ -469,8 +511,8 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     inferenceCounter++;
     
     mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-    mc_rtc::log::info("Policy Input (35 obs): [");
-    for(int i = 0; i < 35; ++i) {
+    mc_rtc::log::info("Policy Input (45 obs): [");
+    for(int i = 0; i < 45; ++i) {
       mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
     }
     mc_rtc::log::info("]");
@@ -554,6 +596,11 @@ void RLController::inferenceThreadFunction()
     
     try
     {
+      if(!rlPolicy_) {
+        mc_rtc::log::error("RL policy not loaded - cannot perform inference");
+        continue;
+      }
+      
       auto startTime = std::chrono::high_resolution_clock::now();
       Eigen::VectorXd action = rlPolicy_->predict(obs);
       auto endTime = std::chrono::high_resolution_clock::now();

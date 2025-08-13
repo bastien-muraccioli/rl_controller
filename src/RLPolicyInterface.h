@@ -34,7 +34,7 @@ public:
   
   /**
    * @brief Run inference on the policy
-   * @param observation Input observation vector (size 35)
+   * @param observation Input observation vector (size 45)
    * @return Action vector (size 19)
    */
   Eigen::VectorXd predict(const Eigen::VectorXd & observation);
@@ -49,7 +49,7 @@ public:
    * @brief Get the expected observation size
    * @return Expected observation dimension
    */
-  int getObservationSize() const { return 35; }
+  int getObservationSize() const { return 45; }
   
   /**
    * @brief Get the action size
