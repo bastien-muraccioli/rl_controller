@@ -113,7 +113,6 @@ struct RLController : public mc_control::fsm::Controller
   Eigen::Vector3d rpy; // Roll, Pitch, Yaw angles of the base
   Eigen::VectorXd legPos, legVel, legAction; // Leg position, velocity and action in mc_rtc order
 
-  double locoMode_;                            // Locomotion mode
   Eigen::Vector3d cmd_;                        // Command vector [vx, vy, yaw_rate]
   double phase_;                               // Current phase for periodic gait
   double phaseFreq_;                           // Phase frequency (1.2 Hz)

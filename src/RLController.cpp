@@ -111,12 +111,11 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt,
   shouldStopInference_ = false;
   newObservationAvailable_ = false;
   newActionAvailable_ = false;
-  currentObservation_ = Eigen::VectorXd::Zero(45);
+  currentObservation_ = Eigen::VectorXd::Zero(40);
   currentAction_ = Eigen::VectorXd::Zero(dofNumber);
   latestAction_ = Eigen::VectorXd::Zero(dofNumber);
   
   // Initialize new observation components
-  locoMode_ = 0.0;  // Default locomotion mode
   cmd_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
   phase_ = 0.0;  // Phase for periodic gait
   phaseFreq_ = 1.2;  // Phase frequency in Hz
@@ -223,7 +222,6 @@ void RLController::logging()
   logger().addLogEntry("RLController_legPos", [this]() { return legPos; });
   logger().addLogEntry("RLController_legVel", [this]() { return legVel; });
   logger().addLogEntry("RLController_legAction", [this]() { return legAction; });
-  logger().addLogEntry("RLController_locoMode", [this]() { return locoMode_; });
   logger().addLogEntry("RLController_cmd", [this]() { return cmd_; });
   logger().addLogEntry("RLController_phase", [this]() { return phase_; });
 
@@ -378,8 +376,8 @@ Eigen::VectorXd RLController::getCurrentObservation()
 {
   // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), loco_mode (1), cmd (3), cos(phase) (1), sin(phase) (1), zeros (4)]
 
-  Eigen::VectorXd obs(45);
-  obs = Eigen::VectorXd::Zero(45);
+  Eigen::VectorXd obs(40);
+  obs = Eigen::VectorXd::Zero(40);
 
   // const auto & robot = this->robot();
 
@@ -429,14 +427,11 @@ Eigen::VectorXd RLController::getCurrentObservation()
     }
   }
   obs.segment(25, 10) = legAction;
-  
-  // New observation components for 45-element format
-  
-  // Locomotion mode (1 element) - index 35
-  obs(35) = locoMode_;
+
+  // New observation components for 40-element format
   
   // Command (3 elements) - indices 36-38: [vx, vy, yaw_rate]
-  obs.segment(36, 3) = cmd_;
+  obs.segment(35, 3) = cmd_;
   
   // Phase components (2 elements) - indices 39-40
   // Calculate current phase based on time and frequency
@@ -444,11 +439,8 @@ Eigen::VectorXd RLController::getCurrentObservation()
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startPhase_);
   phase_ = fmod(elapsed.count() * 0.001 * phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
   
-  obs(39) = cos(phase_);  // cos(phase)
-  obs(40) = sin(phase_);  // sin(phase)
-  
-  // Zeros (4 elements) - indices 41-44
-  obs.segment(41, 4).setZero();
+  obs(38) = cos(phase_);  // cos(phase)
+  obs(39) = sin(phase_);  // sin(phase)
   
   return obs;
 }
@@ -511,8 +503,8 @@ void RLController::applyAction(const Eigen::VectorXd & action)
     inferenceCounter++;
     
     mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-    mc_rtc::log::info("Policy Input (45 obs): [");
-    for(int i = 0; i < 45; ++i) {
+    mc_rtc::log::info("Policy Input (40 obs): [");
+    for(int i = 0; i < 40; ++i) {
       mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
     }
     mc_rtc::log::info("]");
