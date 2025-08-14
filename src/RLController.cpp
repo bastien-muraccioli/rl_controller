@@ -691,7 +691,6 @@ void RLController::TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool
       break;
     }
     default:
-      mc_rtc::log::error("Invalid task type: {}", taskType);
       return;
   }
 }
