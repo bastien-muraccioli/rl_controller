@@ -379,7 +379,7 @@ void RLController::initializeAllJoints()
 
 Eigen::VectorXd RLController::getCurrentObservation()
 {
-  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), loco_mode (1), cmd (3), cos(phase) (1), sin(phase) (1), zeros (4)]
+  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), sin(phase) (1), cos(phase) (1), command (3)]
 
   Eigen::VectorXd obs(40);
   obs = Eigen::VectorXd::Zero(40);
@@ -432,21 +432,18 @@ Eigen::VectorXd RLController::getCurrentObservation()
     }
   }
   obs.segment(25, 10) = legAction;
-
-  // New observation components for 40-element format
   
-  // Command (3 elements) - indices 36-38: [vx, vy, yaw_rate]
-  obs.segment(35, 3) = cmd_;
-  
-  // Phase components (2 elements) - indices 39-40
-  // Calculate current phase based on time and frequency
+  // Phase components
   auto currentTime = std::chrono::steady_clock::now();
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startPhase_);
   phase_ = fmod(elapsed.count() * 0.001 * phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
   
-  obs(38) = cos(phase_);  // cos(phase)
-  obs(39) = sin(phase_);  // sin(phase)
-  
+  obs(35) = sin(phase_);
+  obs(36) = cos(phase_);
+
+  // Command (3 elements) - [vx, vy, yaw_rate]
+  obs.segment(37, 3) = cmd_;
+
   return obs;
 }
 

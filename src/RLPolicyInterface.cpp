@@ -317,15 +317,11 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
   {
     // 1D model: [obs_size]
     inputShape = {static_cast<int64_t>(observation.size())};
-    mc_rtc::log::info("Creating ONNX input tensor with 1D shape [{}] and {} elements", 
-                     inputShape[0], inputData.size());
   }
   else
   {
     // 2D model: [batch_size, obs_size] 
     inputShape = {1, static_cast<int64_t>(observation.size())};
-    mc_rtc::log::info("Creating ONNX input tensor with 2D shape [{}, {}] and {} elements", 
-                     inputShape[0], inputShape[1], inputData.size());
   }
   
   Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
@@ -334,14 +330,6 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
     
   // Verify tensor was created correctly
   auto createdShape = inputTensor.GetTensorTypeAndShapeInfo().GetShape();
-  if(createdShape.size() == 1)
-  {
-    mc_rtc::log::info("Created tensor has 1D shape [{}]", createdShape[0]);
-  }
-  else
-  {
-    mc_rtc::log::info("Created tensor has 2D shape [{}, {}]", createdShape[0], createdShape[1]);
-  }
   
   // Run inference
   auto outputTensors = onnxSession_->Run(
@@ -358,22 +346,14 @@ Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & obse
   float* outputData = outputTensors[0].GetTensorMutableData<float>();
   auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
   
-  if(outputShape.size() == 1)
+  if(outputShape.size() == 1 and outputShape[0] != getActionSize())
   {
-    mc_rtc::log::info("Output tensor has 1D shape [{}]", outputShape[0]);
-    
-    // Validate 1D output shape
-    if(outputShape[0] != getActionSize())
-    {
-      throw std::runtime_error("Output action size mismatch: expected " + 
-                              std::to_string(getActionSize()) + 
-                              ", got " + std::to_string(outputShape[0]));
-    }
+    throw std::runtime_error("Output action size mismatch: expected " + 
+                            std::to_string(getActionSize()) + 
+                            ", got " + std::to_string(outputShape[0]));
   }
   else if(outputShape.size() == 2)
-  {
-    mc_rtc::log::info("Output tensor has 2D shape [{}, {}]", outputShape[0], outputShape[1]);
-    
+  {    
     // For standard format [batch, action], action size is in second dimension
     // For transposed format [action, batch], action size is in first dimension
     int64_t outputActionSize = outputShape[1];
