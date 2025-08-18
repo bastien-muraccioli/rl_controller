@@ -84,7 +84,7 @@ void utils::run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_n
   {
     mc_rtc::log::error("{} error at step {}: {}", state_name, stepCount_, e.what());
 
-    Eigen::VectorXd zeroAction = Eigen::VectorXd::Zero(19);
+    Eigen::VectorXd zeroAction = Eigen::VectorXd::Zero(ctl.rlPolicy_->getActionSize());
     applyAction(ctl, zeroAction);
   }
 }
@@ -109,10 +109,10 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
 {
   auto & ctl = static_cast<RLController&>(ctl_);
   // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), sin(phase) (1), cos(phase) (1), command (3)]
-  
-  Eigen::VectorXd obs(40);
-  obs = Eigen::VectorXd::Zero(40);
-  
+
+  Eigen::VectorXd obs(ctl.rlPolicy_->getObservationSize());
+  obs = Eigen::VectorXd::Zero(ctl.rlPolicy_->getObservationSize());
+
   // const auto & robot = this->robot();
 
   auto & robot = ctl.robots()[0];
@@ -160,8 +160,9 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
   }
   obs.segment(25, 10) = ctl.legAction;
 
-  // Phase components
+  // Addition for walking policy : comment if working with standing policy :
 
+  // Phase
   auto currentTime = std::chrono::steady_clock::now();
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
   ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
@@ -226,8 +227,8 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     inferenceCounter++;
     
     // mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-    // mc_rtc::log::info("Policy Input (40 obs): [");
-    // for(int i = 0; i < 40; ++i) {
+    // mc_rtc::log::info("Policy Input ({} obs): [", ctl.rlPolicy_->getObservationSize());
+    // for(int i = 0; i < ctl.rlPolicy_->getObservationSize(); ++i) {
     //   mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
     // }
     // mc_rtc::log::info("]");

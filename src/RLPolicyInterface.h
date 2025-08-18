@@ -24,19 +24,14 @@ public:
   RLPolicyInterface(const std::string & policyPath);
   
   /**
-   * @brief Construct dummy policy (for testing)
-   */
-  RLPolicyInterface();
-  
-  /**
    * @brief Destructor
    */
   ~RLPolicyInterface();
   
   /**
    * @brief Run inference on the policy
-   * @param observation Input observation vector (size 40)
-   * @return Action vector (size 19)
+   * @param observation Input observation vector
+   * @return Action vector
    */
   Eigen::VectorXd predict(const Eigen::VectorXd & observation);
   
@@ -50,15 +45,18 @@ public:
    * @brief Get the expected observation size
    * @return Expected observation dimension
    */
-  int getObservationSize() const { return 40; }
+  int getObservationSize() const { return inputSize_; }
   
   /**
    * @brief Get the action size
    * @return Action dimension  
    */
-  int getActionSize() const { return 19; }
+  int getActionSize() const { return outputSize_; }
 
 private:
+  int inputSize_;
+  int outputSize_;
+  
   bool isLoaded_;
   std::string policyPath_;
   

@@ -5,15 +5,9 @@
 #include <filesystem>
 
 RLPolicyInterface::RLPolicyInterface(const std::string & policyPath)
-: isLoaded_(false), policyPath_(policyPath)
+: isLoaded_(false), policyPath_(policyPath), inputSize_(0), outputSize_(0)
 {
   loadPolicy(policyPath);
-}
-
-RLPolicyInterface::RLPolicyInterface()
-: isLoaded_(true), policyPath_("")
-{
-  mc_rtc::log::info("RLPolicyInterface: Using dummy policy for testing");
 }
 
 RLPolicyInterface::~RLPolicyInterface()
@@ -95,49 +89,37 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
       auto outputTensorInfo = outputTypeInfo.GetTensorTypeAndShapeInfo();
       outputShape_ = outputTensorInfo.GetShape();
       
-      // Validate input shape - handle both 1D and 2D cases
+      // Extract input size from shape (handle both 1D and 2D cases)
       if(inputShape_.size() == 1)
       {
+        // 1D case: [obs_size] - implicit batch dimension
+        inputSize_ = static_cast<int>(inputShape_[0]);
         mc_rtc::log::info("Raw input shape from model: [{}] (1D - implicit batch size)", inputShape_[0]);
-        
-        // Handle 1D case: [obs_size] - implicit batch dimension
-        if(inputShape_[0] == getObservationSize())
-        {
-          mc_rtc::log::info("Model uses 1D format: [obs_size] (implicit batch dimension)");
-        }
-        else
-        {
-          mc_rtc::log::error("Input shape mismatch: expected [{}], got [{}]", 
-                            getObservationSize(), inputShape_[0]);
-          isLoaded_ = false;
-          return;
-        }
       }
       else if(inputShape_.size() == 2)
       {
+        // 2D case: [batch_size, obs_size] or [obs_size, batch_size]
         mc_rtc::log::info("Raw input shape from model: [{}, {}] (2D - explicit batch size)", inputShape_[0], inputShape_[1]);
         
-        // Check if shape is in the expected format [batch, obs] or [obs, batch]
-        bool isStandardFormat = (inputShape_[1] == getObservationSize() || inputShape_[1] == -1);
-        bool isTransposedFormat = (inputShape_[0] == getObservationSize() || inputShape_[0] == -1);
-        
-        if(isStandardFormat)
+        // Determine which dimension is the observation size
+        if(inputShape_[0] == 1 || inputShape_[0] == -1)
         {
+          // Standard format: [batch_size, obs_size]
+          inputSize_ = static_cast<int>(inputShape_[1]);
           mc_rtc::log::info("Model uses standard format: [batch_size, obs_size]");
         }
-        else if(isTransposedFormat)
+        else if(inputShape_[1] == 1 || inputShape_[1] == -1)
         {
-          mc_rtc::log::warning("Model appears to use transposed format: [obs_size, batch_size]");
-          mc_rtc::log::warning("This is unusual and may cause issues. Expected: [batch_size=1, obs_size={}]", getObservationSize());
-          // Still continue but warn the user
+          // Transposed format: [obs_size, batch_size]
+          inputSize_ = static_cast<int>(inputShape_[0]);
+          mc_rtc::log::info("Model uses transposed format: [obs_size, batch_size]");
         }
         else
         {
-          mc_rtc::log::error("Input shape mismatch: expected [{}, {}] or [{}, {}], got [{}, {}]", 
-                            -1, getObservationSize(), getObservationSize(), -1,
-                            inputShape_[0], inputShape_[1]);
-          isLoaded_ = false;
-          return;
+          // Neither dimension is 1 or -1, assume standard format
+          inputSize_ = static_cast<int>(inputShape_[1]);
+          mc_rtc::log::warning("Ambiguous input shape [{}, {}], assuming standard format [batch_size, obs_size]", 
+                              inputShape_[0], inputShape_[1]);
         }
       }
       else
@@ -148,49 +130,37 @@ void RLPolicyInterface::loadPolicy(const std::string & path)
         return;
       }
       
-      // Validate output shape - handle both 1D and 2D cases
+      // Extract output size from shape (handle both 1D and 2D cases)
       if(outputShape_.size() == 1)
       {
+        // 1D case: [action_size] - implicit batch dimension
+        outputSize_ = static_cast<int>(outputShape_[0]);
         mc_rtc::log::info("Raw output shape from model: [{}] (1D - implicit batch size)", outputShape_[0]);
-        
-        // Handle 1D case: [action_size] - implicit batch dimension
-        if(outputShape_[0] == getActionSize())
-        {
-          mc_rtc::log::info("Model uses 1D output format: [action_size] (implicit batch dimension)");
-        }
-        else
-        {
-          mc_rtc::log::error("Output shape mismatch: expected [{}], got [{}]", 
-                            getActionSize(), outputShape_[0]);
-          isLoaded_ = false;
-          return;
-        }
       }
       else if(outputShape_.size() == 2)
       {
+        // 2D case: [batch_size, action_size] or [action_size, batch_size]
         mc_rtc::log::info("Raw output shape from model: [{}, {}] (2D - explicit batch size)", outputShape_[0], outputShape_[1]);
         
-        // Check if shape is in the expected format [batch, action] or [action, batch]
-        bool outputStandardFormat = (outputShape_[1] == getActionSize() || outputShape_[1] == -1);
-        bool outputTransposedFormat = (outputShape_[0] == getActionSize() || outputShape_[0] == -1);
-        
-        if(outputStandardFormat)
+        // Determine which dimension is the action size
+        if(outputShape_[0] == 1 || outputShape_[0] == -1)
         {
+          // Standard format: [batch_size, action_size]
+          outputSize_ = static_cast<int>(outputShape_[1]);
           mc_rtc::log::info("Model uses standard output format: [batch_size, action_size]");
         }
-        else if(outputTransposedFormat)
+        else if(outputShape_[1] == 1 || outputShape_[1] == -1)
         {
-          mc_rtc::log::warning("Model appears to use transposed output format: [action_size, batch_size]");
-          mc_rtc::log::warning("This is unusual and may cause issues. Expected: [batch_size=1, action_size={}]", getActionSize());
-          // Still continue but warn the user
+          // Transposed format: [action_size, batch_size]
+          outputSize_ = static_cast<int>(outputShape_[0]);
+          mc_rtc::log::info("Model uses transposed output format: [action_size, batch_size]");
         }
         else
         {
-          mc_rtc::log::error("Output shape mismatch: expected [{}, {}] or [{}, {}], got [{}, {}]", 
-                            -1, getActionSize(), getActionSize(), -1,
-                            outputShape_[0], outputShape_[1]);
-          isLoaded_ = false;
-          return;
+          // Neither dimension is 1 or -1, assume standard format
+          outputSize_ = static_cast<int>(outputShape_[1]);
+          mc_rtc::log::warning("Ambiguous output shape [{}, {}], assuming standard format [batch_size, action_size]", 
+                              outputShape_[0], outputShape_[1]);
         }
       }
       else
@@ -269,14 +239,14 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
   if(!isLoaded_)
   {
     mc_rtc::log::error("Policy not loaded, returning zero action");
-    return Eigen::VectorXd::Zero(19);
+    return Eigen::VectorXd::Zero(outputSize_);
   }
   
   if(observation.size() != getObservationSize())
   {
     mc_rtc::log::error("Observation size mismatch: expected {}, got {}", 
                        getObservationSize(), observation.size());
-    return Eigen::VectorXd::Zero(19);
+    return Eigen::VectorXd::Zero(outputSize_);
   }
   
   if(!policyPath_.empty() && policyPath_.size() >= 5)
@@ -292,14 +262,14 @@ Eigen::VectorXd RLPolicyInterface::predict(const Eigen::VectorXd & observation)
       {
         mc_rtc::log::error("ONNX inference failed: {}", e.what());
         mc_rtc::log::error("Returning zero action as fallback");
-        return Eigen::VectorXd::Zero(19);
+        return Eigen::VectorXd::Zero(outputSize_);
       }
     }
   }
   
   // Fallback: return zero action
   mc_rtc::log::warning("Using fallback zero action (no valid policy loaded)");
-  return Eigen::VectorXd::Zero(19);
+  return Eigen::VectorXd::Zero(outputSize_);
 }
 
 Eigen::VectorXd RLPolicyInterface::runOnnxInference(const Eigen::VectorXd & observation)

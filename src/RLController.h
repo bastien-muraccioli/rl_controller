@@ -87,8 +87,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd tau_cmd_after_pd;
 
   // For RL
-  Eigen::VectorXd q_zero_vector;               // Reference joint positions (19 joints in mc_rtc order)
-  Eigen::VectorXd a_before_vector;             // Last actions applied (19 joints in mc_rtc order)
+  Eigen::VectorXd q_zero_vector;               // Reference joint positions
+  Eigen::VectorXd a_before_vector;             // Last actions applied
   Eigen::VectorXd a_vector;                    // Action in mc_rtc order
 
   std::vector<std::string> notControlledJoints; // Joints that are not controlled by the RL controller: arms + torso, in that case q_rl = q_zero
