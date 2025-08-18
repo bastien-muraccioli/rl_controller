@@ -1,6 +1,4 @@
 ---
-# RLController FSM Configuration
-# Backend: TVM
 # If true, the FSM transitions are managed by an external tool
 Managed: false
 # If true and the FSM is self-managed, transitions should be triggered
@@ -29,131 +27,195 @@ collisions:
 - type: collision
   useMinimal: true
 
-# Basic constraints
-# constraints:
-#   # - type: "contact"
-#   - type: "dynamics
-#     damper: [0.1, 0.01, 0.5]
-  # - type: "compoundJoint"
-
-# Initial contacts (both feet on ground)
-# contacts:
-#   - r1: "h1"
-#     r2: "ground" 
-#     r1Surface: "LeftFootCenter"
-#     r2Surface: "AllGround"
-#   - r1: "h1"
-#     r2: "ground"
-#     r1Surface: "RightFootCenter" 
-#     r2Surface: "AllGround"
-
-# RL Controller specific configuration
-policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
-use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
-
-# State definitions
-states:
-  RLExecution:
-    # Enable timing logs for performance monitoring
-    log_timing: true
-    timing_log_interval: 1000
-    
-    # Impedance control parameters (optional - can override defaults)
-    # kp: [200, 200, 200, 150, 100, 200, 200, 200, 150, 100]  # Position gains
-    # kd: [10, 10, 10, 8, 5, 10, 10, 10, 8, 5]                # Velocity gains
-
-# Transition from initial state to RL execution
-transitions:
-# - [RLController_Initial, OK, RLExecution, Strict]
-- [RLExecution, OK, RLExecution, Strict]
-
-# Start with initial state
-# init: "RLController_Initial" 
-init: "RLExecution" 
-
-# ObserverPipelines:
-# - name: MainPipeline                     # - Create a new pipeline
-#   gui: true                              #   diplay the pipeline in the GUI (default = false)
-#   log: true                              #   log observers (default)
-
-#   observers:                             #   declare which observers to use
-#   - type: Encoder                        # - Use an EncoderObserver
-#     config:                              #
-#       position: encoderValues            #    - Sets joint position from encoder sensor values (default)
-#       velocity: encoderFiniteDifferences #    - Computes joint velocities by finite differences  (default)
-#                                          # We now have the estimation of each joint position and velocity and the corresponding
-#                                          # body positions and velocities, but we are still missing the floating base
-
-#   - type: BodySensor                     # - Use a BodySensor observer
-#     update: false                        #   Do not update the real robot state
-#     gui: false                           #   Do not display in the gui
-#     config:                              #
-#       bodySensor: FloatingBase
-
 ObserverPipelines:
-  name: "Pipeline"
+  name: MainPipeline
   gui: true
+  log: true
+
   observers:
     - type: Encoder
       config:
           velocity: encoderVelocities
-    
-    # - type: Attitude
-    #   required: true
-    #   update: true
 
-    # - type: KinematicInertial              # - Estimates the floating base state using the KinematicInertial observer
-    #   update: true                         #   update the real robot instance from its results
-    #   gui: true                            #   Displays the estimated velocity as an arrow (default)
-    #   config:
-    #     imuBodySensor: Accelerometer
+    - type: Attitude
+      required: true
+      update: true
+
+    - type: KinematicInertial
+      update: true
+      config:
+        imuBodySensor: Accelerometer
 
     - type: BodySensor
       update: true
       config:
         bodySensor: FloatingBase
 
-# kp:
-#     left_hip_yaw_joint: 1500.0
-#     left_hip_roll_joint: 1500.0
-#     left_hip_pitch_joint: 1500.0
-#     left_knee_joint: 1500.0
-#     left_ankle_joint: 1500.0
-#     right_hip_yaw_joint: 1500.0
-#     right_hip_roll_joint: 1500.0
-#     right_hip_pitch_joint: 1500.0
-#     right_knee_joint: 1500.0
-#     right_ankle_joint: 1500.0
-#     torso_joint: 200.0
-#     left_shoulder_pitch_joint: 200.0
-#     left_shoulder_roll_joint: 100.0
-#     left_shoulder_yaw_joint: 100.0
-#     left_elbow_joint: 200.0
-#     right_shoulder_pitch_joint: 200.0
-#     right_shoulder_roll_joint: 100.0
-#     right_shoulder_yaw_joint: 100.0
-#     right_elbow_joint: 200.0
+# Transition from initial state to RL execution
+transitions:
+# configure the transitions between every states
+- [RL_QP_FDTask_Torque, OK, RL_QP_FDTask_Torque, Strict]
+- [RL_QP_FDTask_Torque, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [RL_QP_FDTask_Torque, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [RL_QP_FDTask_Torque, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [RL_QP_FDTask_Torque, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [RL_QP_FDTask_Torque, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [RL_QP_FDTask_Torque, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [RL_QP_FDTask_Torque, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [RL_QP_FDTask_Torque, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [RL_QP_FDTask_Torque, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
 
-# kd:
-#     left_hip_yaw_joint: 25.0
-#     left_hip_roll_joint: 25.0
-#     left_hip_pitch_joint: 25.0
-#     left_knee_joint: 25.0
-#     left_ankle_joint: 25.0
-#     right_hip_yaw_joint: 25.0
-#     right_hip_roll_joint: 25.0
-#     right_hip_pitch_joint: 25.0
-#     right_knee_joint: 25.0
-#     right_ankle_joint: 25.0
-#     torso_joint: 6.0
-#     left_shoulder_pitch_joint: 2.0
-#     left_shoulder_roll_joint: 2.0
-#     left_shoulder_yaw_joint: 2.0
-#     left_elbow_joint: 2.0
-#     right_shoulder_pitch_joint: 2.0
-#     right_shoulder_roll_joint: 2.0
-#     right_shoulder_yaw_joint: 2.0
-#     right_elbow_joint: 2.0
+- [RL_QP_FDTask_Pos, OK, RL_QP_FDTask_Pos, Strict]
+- [RL_QP_FDTask_Pos, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [RL_QP_FDTask_Pos, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [RL_QP_FDTask_Pos, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [RL_QP_FDTask_Pos, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [RL_QP_FDTask_Pos, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [RL_QP_FDTask_Pos, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [RL_QP_FDTask_Pos, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [RL_QP_FDTask_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [RL_QP_FDTask_Pos, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [RL_QP_TorqueTask_Torque, OK, RL_QP_TorqueTask_Torque, Strict]
+- [RL_QP_TorqueTask_Torque, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [RL_QP_TorqueTask_Torque, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [RL_QP_TorqueTask_Torque, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [RL_QP_TorqueTask_Torque, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [RL_QP_TorqueTask_Torque, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [RL_QP_TorqueTask_Torque, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [RL_QP_TorqueTask_Torque, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [RL_QP_TorqueTask_Torque, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [RL_QP_TorqueTask_Torque, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [RL_QP_TorqueTask_Pos, OK, RL_QP_TorqueTask_Pos, Strict]
+- [RL_QP_TorqueTask_Pos, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [RL_QP_TorqueTask_Pos, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [RL_QP_TorqueTask_Pos, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [RL_QP_TorqueTask_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [RL_QP_TorqueTask_Pos, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [PureRL_Torque, OK, PureRL_Torque, Strict]
+- [PureRL_Torque, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [PureRL_Torque, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [PureRL_Torque, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [PureRL_Torque, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [PureRL_Torque, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [PureRL_Torque, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [PureRL_Torque, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [PureRL_Torque, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [PureRL_Torque, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [PureRL_Pos, OK, PureRL_Pos, Strict]
+- [PureRL_Pos, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [PureRL_Pos, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [PureRL_Pos, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [PureRL_Pos, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [PureRL_Pos, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [PureRL_Pos, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [PureRL_Pos, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [PureRL_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [PureRL_Pos, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [Posture_FDTask_Torque, OK, Posture_FDTask_Torque, Strict]
+- [Posture_FDTask_Torque, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [Posture_FDTask_Torque, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [Posture_FDTask_Torque, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [Posture_FDTask_Torque, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [Posture_FDTask_Torque, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [Posture_FDTask_Torque, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [Posture_FDTask_Torque, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [Posture_FDTask_Torque, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [Posture_FDTask_Torque, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [Posture_FDTask_Pos, OK, Posture_FDTask_Pos, Strict]
+- [Posture_FDTask_Pos, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [Posture_FDTask_Pos, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [Posture_FDTask_Pos, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [Posture_FDTask_Pos, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [Posture_FDTask_Pos, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [Posture_FDTask_Pos, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [Posture_FDTask_Pos, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [Posture_FDTask_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+- [Posture_FDTask_Pos, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [Posture_TorqueTask_Torque, OK, Posture_TorqueTask_Torque, Strict]
+- [Posture_TorqueTask_Torque, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [Posture_TorqueTask_Torque, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [Posture_TorqueTask_Torque, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [Posture_TorqueTask_Torque, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [Posture_TorqueTask_Torque, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [Posture_TorqueTask_Torque, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [Posture_TorqueTask_Torque, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [Posture_TorqueTask_Torque, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [Posture_TorqueTask_Torque, transition_Posture_TorqueTask_Pos, Posture_TorqueTask_Pos, Strict]
+
+- [Posture_TorqueTask_Pos, OK, Posture_TorqueTask_Pos, Strict]
+- [Posture_TorqueTask_Pos, transition_RL_QP_FDTask_Torque, RL_QP_FDTask_Torque, Strict]
+- [Posture_TorqueTask_Pos, transition_RL_QP_FDTask_Pos, RL_QP_FDTask_Pos, Strict]
+- [Posture_TorqueTask_Pos, transition_RL_QP_TorqueTask_Torque, RL_QP_TorqueTask_Torque, Strict]
+- [Posture_TorqueTask_Pos, transition_RL_QP_TorqueTask_Pos, RL_QP_TorqueTask_Pos, Strict]
+- [Posture_TorqueTask_Pos, transition_PureRL_Torque, PureRL_Torque, Strict]
+- [Posture_TorqueTask_Pos, transition_PureRL_Pos, PureRL_Pos, Strict]
+- [Posture_TorqueTask_Pos, transition_Posture_FDTask_Torque, Posture_FDTask_Torque, Strict]
+- [Posture_TorqueTask_Pos, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
+- [Posture_TorqueTask_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
+
+init: RL_QP_TorqueTask_Torque 
+
+# RL Controller specific configuration
+policy_path: "policy.onnx"  # Your ONNX policy file in the controller root directory
+use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
+
+log_timing: true
+timing_log_interval: 100
+Simulator: "Maniskill"
+Used_joints_index: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] #legs
+
+high_kp:
+    left_hip_yaw_joint: 1500.0
+    left_hip_roll_joint: 1500.0
+    left_hip_pitch_joint: 1500.0
+    left_knee_joint: 1500.0
+    left_ankle_joint: 1500.0
+    right_hip_yaw_joint: 1500.0
+    right_hip_roll_joint: 1500.0
+    right_hip_pitch_joint: 1500.0
+    right_knee_joint: 1500.0
+    right_ankle_joint: 1500.0
+    torso_joint: 200.0
+    left_shoulder_pitch_joint: 200.0
+    left_shoulder_roll_joint: 100.0
+    left_shoulder_yaw_joint: 100.0
+    left_elbow_joint: 200.0
+    right_shoulder_pitch_joint: 200.0
+    right_shoulder_roll_joint: 100.0
+    right_shoulder_yaw_joint: 100.0
+    right_elbow_joint: 200.0
+
+high_kd:
+    left_hip_yaw_joint: 25.0
+    left_hip_roll_joint: 25.0
+    left_hip_pitch_joint: 25.0
+    left_knee_joint: 25.0
+    left_ankle_joint: 25.0
+    right_hip_yaw_joint: 25.0
+    right_hip_roll_joint: 25.0
+    right_hip_pitch_joint: 25.0
+    right_knee_joint: 25.0
+    right_ankle_joint: 25.0
+    torso_joint: 6.0
+    left_shoulder_pitch_joint: 2.0
+    left_shoulder_roll_joint: 2.0
+    left_shoulder_yaw_joint: 2.0
+    left_elbow_joint: 2.0
+    right_shoulder_pitch_joint: 2.0
+    right_shoulder_roll_joint: 2.0
+    right_shoulder_yaw_joint: 2.0
+    right_elbow_joint: 2.0
 
 kp:
     left_hip_yaw_joint: 100.0
