@@ -1,63 +1,59 @@
 #pragma once
 
-#include <mc_control/mc_controller.h>
 #include <mc_control/fsm/Controller.h>
 #include <mc_tasks/TorqueTask.h>
+#include <mc_tasks/PostureTask.h>
+
+#include "api.h"
+
 #include "RLPolicyInterface.h"
 #include "PolicySimulatorHandling.h"
 #include "utils.h"
 
 #include <memory>
 #include <Eigen/Dense>
-#include <thread>
 #include <mutex>
 #include <atomic>
-#include <condition_variable>
+
 #include <chrono>
 #include <vector>
-#include "api.h"
+
 #include <numeric>
 
-struct RLController : public mc_control::fsm::Controller
+#define TORQUE_TASK 0
+#define FD_TASK 1
+#define PURE_RL 2
+
+struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 {
-  RLController(mc_rbdyn::RobotModulePtr rm, double dt, 
-               const mc_rtc::Configuration & config);
-  ~RLController();
+  RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config);
+
   bool run() override;
 
   void reset(const mc_control::ControllerResetData & reset_data) override;
 
-  void logging();
-  void initializeAllJoints();
+  void addLog();
+  void addGui();
+  void initializeRobot(const mc_rtc::Configuration & config);
+  void initializeRLPolicy(const mc_rtc::Configuration & config);
+  void initializeState(bool torque_control, int task_type, bool controlled_by_rl);
 
   bool positionControl(bool run);
   bool torqueControl(bool run);
 
-  Eigen::VectorXd getCurrentObservation();
-  void applyAction(const Eigen::VectorXd & action);
-
-  void TasksSimulation(Eigen::VectorXd & currentTargetPosition, bool highGains = false);
-  
-  // Threading
-  void startInferenceThread();
-  void stopInferenceThread();
-  void inferenceThreadFunction();
-  void updateObservationForInference();
-  Eigen::VectorXd getLatestAction();
-  
-  // reordering methods
-  Eigen::VectorXd reorderJointsToManiskill(const Eigen::VectorXd & obs);
-  Eigen::VectorXd reorderJointsFromManiskill(const Eigen::VectorXd & action);
-  
+  void tasksComputation(Eigen::VectorXd & currentTargetPosition);
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd> getPDGains();
+  bool setPDGains(Eigen::VectorXd p_vec, Eigen::VectorXd d_vec);
+  bool isHighGain(double tol = 1e-9);
 
   // Tasks
-  std::shared_ptr<mc_tasks::PostureTask> FSMPostureTask;
   std::shared_ptr<mc_tasks::PostureTask> FDTask;
   std::shared_ptr<mc_tasks::TorqueTask> torqueTask;
 
   std::map<std::string, std::vector<double>> torque_target; // Target torques for the torque task;
-  int taskType = 1; // 0: use torqueTask, 1: use FDTask
+  int taskType = FD_TASK;
   bool useQP = true;
+  bool controlledByRL = true;
 
   // Robot specific data
   std::vector<std::string> jointNames;
@@ -69,10 +65,11 @@ struct RLController : public mc_control::fsm::Controller
   Eigen::VectorXd kd_vector;
   Eigen::VectorXd high_kp_vector;
   Eigen::VectorXd high_kd_vector;
+  Eigen::VectorXd current_kp;
+  Eigen::VectorXd current_kd;
 
   // Options
   bool compensateExternalForces = false;
-  bool compensateExternalForcesHasChanged = false;
 
   // Robot state 
   Eigen::VectorXd refAccel;
@@ -83,6 +80,8 @@ struct RLController : public mc_control::fsm::Controller
   // For position control
   Eigen::VectorXd ddot_qp;
   Eigen::VectorXd ddot_qp_w_floatingBase;
+  Eigen::VectorXd tau_qp;
+  Eigen::VectorXd tau_qp_w_floatingBase;
   Eigen::VectorXd q_cmd;
   Eigen::VectorXd q_cmd_w_floatingBase;
   Eigen::VectorXd tau_cmd_after_pd;
@@ -101,11 +100,11 @@ struct RLController : public mc_control::fsm::Controller
   // RL policy 
   std::unique_ptr<RLPolicyInterface> rlPolicy_;
   std::unique_ptr<PolicySimulatorHandling> policySimulatorHandling_;
+  utils utils_; // Utility functions for RL controller
   
   std::chrono::steady_clock::time_point lastInferenceTime_;
   Eigen::VectorXd q_rl_vector;  // Hold target position between inference calls
-  bool targetPositionValid_;               // Flag to check if we have a valid target
-  static constexpr double INFERENCE_PERIOD_MS = 25.0;  // 40Hz = 25ms period
+  
 
   
   // observation data - Policy specific
@@ -118,25 +117,12 @@ struct RLController : public mc_control::fsm::Controller
   double phaseFreq_;                           // Phase frequency (1.2 Hz)
   std::chrono::steady_clock::time_point startPhase_; // Start time for phase calculation
     
-  // threading
-  std::unique_ptr<std::thread> inferenceThread_;
-  std::mutex actionMutex_;
-  std::mutex observationMutex_;
-  std::condition_variable inferenceCondition_;
-  std::atomic<bool> shouldStopInference_;
-  std::atomic<bool> newObservationAvailable_;
-  std::atomic<bool> newActionAvailable_;
-  
   Eigen::VectorXd currentObservation_;   // Protected by observationMutex_
   Eigen::VectorXd currentAction_;        // Protected by actionMutex_
   Eigen::VectorXd latestAction_;         // current action being used by control loop
   
   bool useAsyncInference_;
 
-  // State-specific data
-  size_t stepCount_ = 0;
-  double startTime_ = 0.0;
-  
   // Timing and statistics
   bool logTiming_ = false;
   size_t timingLogInterval_ = 1000;  // Log every N steps
