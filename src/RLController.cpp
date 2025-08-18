@@ -164,13 +164,13 @@ bool RLController::positionControl(bool run)
   {
     q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
     alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
-    // tau[robot().jointIndexByName(joint_name)][0] = tau_cmd_after_pd[i];
+    tau[robot().jointIndexByName(joint_name)][0] = tau_cmd_after_pd[i];
     i++;
   }
   if(controlledByRL) robot().mbc().alpha = alpha; // Update the mbc with the new velocity to respect the RL policy
   robot().mbc().q = q; // Update the mbc with the new position
   // To close the loop on the external torques:
-  // robot().mbc().jointTorque = tau; // Update the mbc with the new torque
+  robot().mbc().jointTorque = tau; // Update the mbc with the new torque
   return run;
 }
 
