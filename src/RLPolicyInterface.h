@@ -56,6 +56,8 @@ public:
 private:
   int inputSize_;
   int outputSize_;
+  bool inputIs2D_;    // true if input shape is [batch, obs_size], false if [obs_size]
+  bool outputIs2D_;   // true if output shape is [batch, action_size], false if [action_size]
   
   bool isLoaded_;
   std::string policyPath_;
@@ -63,12 +65,10 @@ private:
   std::unique_ptr<Ort::Session> onnxSession_;
   std::unique_ptr<Ort::Env> onnxEnv_;
   std::unique_ptr<Ort::MemoryInfo> memoryInfo_;
-  std::vector<std::string> inputNames_;
-  std::vector<std::string> outputNames_;
-  std::vector<const char*> inputNamePtrs_;
-  std::vector<const char*> outputNamePtrs_;
-  std::vector<int64_t> inputShape_;
-  std::vector<int64_t> outputShape_;
+  std::string inputName_;
+  std::string outputName_;
+  const char* inputNamePtr_;   // Cached pointer for inference performance
+  const char* outputNamePtr_;  // Cached pointer for inference performance
   
   void loadPolicy(const std::string & path);
   
