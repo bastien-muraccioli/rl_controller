@@ -195,7 +195,8 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     // Run new inference and update target position
     ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(action, ctl.dofNumber);
     // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
-    ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
+    // ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
+    ctl.q_rl_vector = ctl.q_zero_vector + ctl.a_vector;
 
     // For not controlled joints, use the zero position
     for(const auto & joint : ctl.notControlledJoints)
