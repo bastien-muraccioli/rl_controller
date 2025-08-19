@@ -2,6 +2,9 @@
 #include <Eigen/src/Core/VectorBlock.h>
 #include <eigen3/Eigen/src/Core/Matrix.h>
 #include <mc_rtc/logging.h>
+#include <mc_rbdyn/configuration_io.h>
+#include <chrono>
+#include <cmath>
 
 
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config)
@@ -358,20 +361,32 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   
   useAsyncInference_ = config("use_async_inference", true);
   mc_rtc::log::info("Async RL inference: {}", useAsyncInference_ ? "enabled" : "disabled");
-  currentObservation_ = Eigen::VectorXd::Zero(35);
   currentAction_ = Eigen::VectorXd::Zero(dofNumber);
   latestAction_ = Eigen::VectorXd::Zero(dofNumber);
   
+  // Initialize new observation components
+  cmd_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
+  phase_ = 0.0;  // Phase for periodic gait
+  phaseFreq_ = 1.2;  // Phase frequency in Hz
+  startPhase_ = std::chrono::steady_clock::now();  // For phase calculation
+  
   std::string policyPath = config("policy_path", std::string(""));
-  if(!policyPath.empty())
-  {
-    mc_rtc::log::info("Loading RL policy from: {}", policyPath);
+  if(policyPath.empty())
+    policyPath = "policy.onnx"; // Default policy path if not specified in config
+
+  mc_rtc::log::info("Loading RL policy from: {}", policyPath);
+  try {
     rlPolicy_ = std::make_unique<RLPolicyInterface>(policyPath);
-  }
-  else
-  {
-    mc_rtc::log::warning("No policy_path specified, creating dummy policy");
-    rlPolicy_ = std::make_unique<RLPolicyInterface>();
+    if(rlPolicy_) {
+      mc_rtc::log::success("RL policy loaded successfully");
+      // Initialize observation vector with the correct size from the loaded policy
+      currentObservation_ = Eigen::VectorXd::Zero(rlPolicy_->getObservationSize());
+      mc_rtc::log::info("Initialized observation vector with size: {}", rlPolicy_->getObservationSize());
+    } else {
+      mc_rtc::log::error_and_throw("RL policy creation failed - policy is null");
+    }
+  } catch(const std::exception& e) {
+    mc_rtc::log::error_and_throw("Failed to load RL policy: {}", e.what());
   }
 
   std::string simulator = config("Simulator", std::string(""));

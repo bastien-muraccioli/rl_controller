@@ -87,8 +87,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd tau_cmd_after_pd;
 
   // For RL
-  Eigen::VectorXd q_zero_vector;               // Reference joint positions (19 joints in mc_rtc order)
-  Eigen::VectorXd a_before_vector;             // Last actions applied (19 joints in mc_rtc order)
+  Eigen::VectorXd q_zero_vector;               // Reference joint positions
+  Eigen::VectorXd a_before_vector;             // Last actions applied
   Eigen::VectorXd a_vector;                    // Action in mc_rtc order
 
   std::vector<std::string> notControlledJoints; // Joints that are not controlled by the RL controller: arms + torso, in that case q_rl = q_zero
@@ -111,6 +111,11 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d baseAngVel; // Angular velocity of the base
   Eigen::Vector3d rpy; // Roll, Pitch, Yaw angles of the base
   Eigen::VectorXd legPos, legVel, legAction; // Leg position, velocity and action in mc_rtc order
+
+  Eigen::Vector3d cmd_;                        // Command vector [vx, vy, yaw_rate]
+  double phase_;                               // Current phase for periodic gait
+  double phaseFreq_;                           // Phase frequency (1.2 Hz)
+  std::chrono::steady_clock::time_point startPhase_; // Start time for phase calculation
     
   Eigen::VectorXd currentObservation_;   // Protected by observationMutex_
   Eigen::VectorXd currentAction_;        // Protected by actionMutex_

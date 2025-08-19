@@ -84,7 +84,7 @@ void utils::run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_n
   {
     mc_rtc::log::error("{} error at step {}: {}", state_name, stepCount_, e.what());
 
-    Eigen::VectorXd zeroAction = Eigen::VectorXd::Zero(19);
+    Eigen::VectorXd zeroAction = Eigen::VectorXd::Zero(ctl.rlPolicy_->getActionSize());
     applyAction(ctl, zeroAction);
   }
 }
@@ -108,11 +108,11 @@ void utils::teardown_rl_state(mc_control::fsm::Controller & ctl_, std::string st
 Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
 {
   auto & ctl = static_cast<RLController&>(ctl_);
-  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10)]
-  
-  Eigen::VectorXd obs(35);
-  obs = Eigen::VectorXd::Zero(35);
-  
+  // Observation: [base angular velocity (3), roll (1), pitch (1), joint pos (10), joint vel (10), past action (10), sin(phase) (1), cos(phase) (1), command (3)]
+
+  Eigen::VectorXd obs(ctl.rlPolicy_->getObservationSize());
+  obs = Eigen::VectorXd::Zero(ctl.rlPolicy_->getObservationSize());
+
   // const auto & robot = this->robot();
 
   auto & robot = ctl.robots()[0];
@@ -159,6 +159,20 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
     }
   }
   obs.segment(25, 10) = ctl.legAction;
+
+  // Addition for walking policy : comment if working with standing policy :
+
+  // Phase
+  auto currentTime = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
+  ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+
+  obs(35) = sin(ctl.phase_);
+  obs(36) = cos(ctl.phase_);
+
+  // Command (3 elements) - [vx, vy, yaw_rate]
+  obs.segment(37, 3) = ctl.cmd_;
+
   return obs;
 }
 
@@ -182,7 +196,8 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     // Run new inference and update target position
     ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(action, ctl.dofNumber);
     // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
-    ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
+    // ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
+    ctl.q_rl_vector = ctl.q_zero_vector + ctl.a_vector;
 
     // For not controlled joints, use the zero position
     for(const auto & joint : ctl.notControlledJoints)
@@ -212,8 +227,8 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     inferenceCounter++;
     
     // mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-    // mc_rtc::log::info("Policy Input (35 obs): [");
-    // for(int i = 0; i < 35; ++i) {
+    // mc_rtc::log::info("Policy Input ({} obs): [", ctl.rlPolicy_->getObservationSize());
+    // for(int i = 0; i < ctl.rlPolicy_->getObservationSize(); ++i) {
     //   mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
     // }
     // mc_rtc::log::info("]");
