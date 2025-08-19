@@ -46,6 +46,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   bool setPDGains(Eigen::VectorXd p_vec, Eigen::VectorXd d_vec);
   bool isHighGain(double tol = 1e-9);
 
+  bool isWalkingPolicy = false;
+
   // Tasks
   std::shared_ptr<mc_tasks::PostureTask> FDTask;
   std::shared_ptr<mc_tasks::TorqueTask> torqueTask;

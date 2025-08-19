@@ -41,15 +41,15 @@ ObserverPipelines:
       required: true
       update: true
 
-    - type: KinematicInertial
-      update: true
-      config:
-        imuBodySensor: Accelerometer
+    # - type: KinematicInertial
+    #   update: true
+    #   config:
+    #     imuBodySensor: Accelerometer
 
-    - type: BodySensor
-      update: true
-      config:
-        bodySensor: FloatingBase
+    # - type: BodySensor
+    #   update: true
+    #   config:
+    #     bodySensor: FloatingBase
 
 # Transition from initial state to RL execution
 transitions:
@@ -169,6 +169,7 @@ init: RL_QP_FDTask_Pos
 # RL Controller specific configuration
 policy_path: "walking_policy.onnx"  # Your RL policy ONNX model path
 # policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
+is_walking_policy: true
 
 use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
 

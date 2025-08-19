@@ -12,6 +12,7 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc:
 {
   logTiming_ = config("log_timing");
   timingLogInterval_ = config("timing_log_interval");
+  isWalkingPolicy = config("is_walking_policy", false);
 
   //Initialize Constraints
   selfCollisionConstraint->setCollisionsDampers(solver(), {1.2, 400.0});

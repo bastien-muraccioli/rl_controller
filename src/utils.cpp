@@ -117,13 +117,14 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
 
   auto & robot = ctl.robots()[0];
   auto & real_robot = ctl.realRobot(ctl.robots()[0].name());
+  auto & imu = ctl.robot().bodySensor("Accelerometer");
   
-  ctl.baseAngVel = real_robot.bodyVelW("pelvis").angular();
-  // ctl.baseAngVel = real_robot.bodyVelW()[0].angular();
+  // ctl.baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  ctl.baseAngVel = imu.angularVelocity();
   obs.segment(0, 3) = ctl.baseAngVel; //base angular vel
   
-  Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
-  // Eigen::Matrix3d baseRot = real_robot.bodyPosW()[0].rotation();
+  // Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
+  Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix();
   ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
   obs(3) = ctl.rpy(0);  // roll
   obs(4) = ctl.rpy(1);  // pitch
@@ -161,18 +162,20 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
   obs.segment(25, 10) = ctl.legAction;
 
   // Addition for walking policy : comment if working with standing policy :
+  if (ctl.isWalkingPolicy)
+  {
+    // Phase
+    auto currentTime = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
+    ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
 
-  // Phase
-  auto currentTime = std::chrono::steady_clock::now();
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
-  ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+    obs(35) = sin(ctl.phase_);
+    obs(36) = cos(ctl.phase_);
 
-  obs(35) = sin(ctl.phase_);
-  obs(36) = cos(ctl.phase_);
-
-  // Command (3 elements) - [vx, vy, yaw_rate]
-  obs.segment(37, 3) = ctl.cmd_;
-
+    // Command (3 elements) - [vx, vy, yaw_rate]
+    obs.segment(37, 3) = ctl.cmd_;
+  }
+  
   return obs;
 }
 
