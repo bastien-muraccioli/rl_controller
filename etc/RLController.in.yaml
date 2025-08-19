@@ -168,8 +168,9 @@ init: RL_QP_FDTask_Pos
 
 # RL Controller specific configuration
 policy_path: "walking_policy.onnx"  # Your RL policy ONNX model path
-# policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
 is_walking_policy: true
+# policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
+# is_walking_policy: false
 
 use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
 

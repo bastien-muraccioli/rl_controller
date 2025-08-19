@@ -200,7 +200,7 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(action, ctl.dofNumber);
     // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
     // ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
-    ctl.q_rl_vector = ctl.q_zero_vector + ctl.a_vector;
+    ctl.q_rl = ctl.q_zero_vector + ctl.a_vector;
 
     // For not controlled joints, use the zero position
     for(const auto & joint : ctl.notControlledJoints)
@@ -209,13 +209,13 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
       if(it != ctl.mcRtcJointsOrder.end())
       {
         size_t idx = std::distance(ctl.mcRtcJointsOrder.begin(), it);
-        if(idx < ctl.q_rl_vector.size())
+        if(idx < ctl.q_rl.size())
         {
-          ctl.q_rl_vector(idx) = ctl.q_zero_vector(idx); // Set to zero position
+          ctl.q_rl(idx) = ctl.q_zero_vector(idx); // Set to zero position
         }
         else
         {
-          mc_rtc::log::error("Joint {} index {} out of bounds for q_rl_vector size {}", joint, idx, ctl.q_rl_vector.size());
+          mc_rtc::log::error("Joint {} index {} out of bounds for q_rl_vector size {}", joint, idx, ctl.q_rl.size());
         }
       }
       else

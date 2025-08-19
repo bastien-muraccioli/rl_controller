@@ -12,13 +12,10 @@
 
 #include <memory>
 #include <Eigen/Dense>
-#include <mutex>
-#include <atomic>
 
 #include <chrono>
 #include <vector>
 
-#include <numeric>
 
 #define TORQUE_TASK 0
 #define FD_TASK 1
@@ -38,8 +35,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   void initializeRLPolicy(const mc_rtc::Configuration & config);
   void initializeState(bool torque_control, int task_type, bool controlled_by_rl);
 
-  bool positionControl(bool run);
-  bool torqueControl(bool run);
+  void updateRobotCmdAfterQP();
+  void computeInversePD(); // Update q_cmd based on QP acceleration
 
   void tasksComputation(Eigen::VectorXd & currentTargetPosition);
   std::tuple<Eigen::VectorXd, Eigen::VectorXd> getPDGains();
@@ -75,18 +72,16 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   // Robot state 
   Eigen::VectorXd refAccel;
-  Eigen::VectorXd tau_d;
+  Eigen::VectorXd tau_d;  // torque sends to a task (Torque Task or Forward Dynamics Task)
   Eigen::VectorXd currentPos;
   Eigen::VectorXd currentVel;
 
   // For position control
   Eigen::VectorXd ddot_qp;
   Eigen::VectorXd ddot_qp_w_floatingBase;
-  Eigen::VectorXd tau_qp;
-  Eigen::VectorXd tau_qp_w_floatingBase;
+  Eigen::VectorXd tau_cmd; // Torque computed from the QP acceleration
   Eigen::VectorXd q_cmd;
   Eigen::VectorXd q_cmd_w_floatingBase;
-  Eigen::VectorXd tau_cmd_after_pd;
 
   // For RL
   Eigen::VectorXd q_zero_vector;               // Reference joint positions
@@ -105,10 +100,9 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   utils utils_; // Utility functions for RL controller
   
   std::chrono::steady_clock::time_point lastInferenceTime_;
-  Eigen::VectorXd q_rl_vector;  // Hold target position between inference calls
-  
+  Eigen::VectorXd q_rl;  // Hold target position between inference calls
+  Eigen::VectorXd tau_rl; // Only use for logging
 
-  
   // observation data - Policy specific
   Eigen::Vector3d baseAngVel; // Angular velocity of the base
   Eigen::Vector3d rpy; // Roll, Pitch, Yaw angles of the base

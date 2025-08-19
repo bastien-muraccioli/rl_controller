@@ -5,6 +5,7 @@
 #include <mc_rbdyn/configuration_io.h>
 #include <chrono>
 #include <cmath>
+#include <numeric>
 
 
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config)
@@ -47,10 +48,20 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc:
 bool RLController::run()
 {
   bool run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
-    auto ctrl_mode = datastore().get<std::string>("ControlMode");
-  if (ctrl_mode.compare("Position") == 0)
-    return positionControl(run);
-  return torqueControl(run); // = ctrl_mode.compare("Torque") == 0 :
+  robot().forwardKinematics();
+  robot().forwardVelocity();
+  robot().forwardAcceleration();
+  if(!useQP) // Run RL without taking account of the QP
+  {
+    q_cmd = q_rl; // Use the RL position as the commanded position
+    tau_cmd = kp_vector.cwiseProduct(q_rl - currentPos) - kd_vector.cwiseProduct(currentVel);
+    updateRobotCmdAfterQP();
+    return true;
+  }
+  // Use QP
+  computeInversePD();
+  updateRobotCmdAfterQP();
+  return run; // Return false if QP fails
 }
 
 void RLController::reset(const mc_control::ControllerResetData & reset_data)
@@ -70,9 +81,11 @@ void RLController::tasksComputation(Eigen::VectorXd & currentTargetPosition)
   auto vel = robot.encoderVelocities();
   currentVel = Eigen::VectorXd::Map(vel.data(), vel.size());
 
-  if(controlledByRL) tau_d = kp_vector.cwiseProduct(currentTargetPosition - currentPos) + kd_vector.cwiseProduct(-currentVel);
-  else tau_d = high_kp_vector.cwiseProduct(currentTargetPosition - currentPos) + high_kd_vector.cwiseProduct(-currentVel);
+  if(controlledByRL) tau_d = kp_vector.cwiseProduct(currentTargetPosition - currentPos) - kd_vector.cwiseProduct(currentVel);
+  else tau_d = high_kp_vector.cwiseProduct(currentTargetPosition - currentPos) - high_kd_vector.cwiseProduct(currentVel);
 
+  tau_rl = kp_vector.cwiseProduct(q_rl - currentPos) - kd_vector.cwiseProduct(currentVel);
+  
   switch (taskType)
   {
     case TORQUE_TASK: // Torque Task
@@ -92,22 +105,15 @@ void RLController::tasksComputation(Eigen::VectorXd & currentTargetPosition)
       fd.computeC(real_robot.mb(), real_robot.mbc());
       Eigen::MatrixXd M_w_floatingBase = fd.H();
       Eigen::VectorXd Cg_w_floatingBase = fd.C();
-      // Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
-      // Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
       
       auto extTorqueSensor = robot.device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
-      // Eigen::VectorXd externalTorques = extTorqueSensor.torques().tail(dofNumber); // Exclude the floating base part
       Eigen::VectorXd tau_d_w_floating_base = Eigen::VectorXd::Zero(robot.mb().nrDof());
       tau_d_w_floating_base.tail(dofNumber) = tau_d.tail(dofNumber);
       Eigen::VectorXd content = tau_d_w_floating_base - Cg_w_floatingBase; // Add the external torques to the desired torques
       if(!compensateExternalForces) content += extTorqueSensor.torques();
+      
       Eigen::VectorXd refAccel_w_floating_base = M_w_floatingBase.llt().solve(content);
       refAccel = refAccel_w_floating_base.tail(dofNumber); // Exclude the floating base part
-
-      
-      // Eigen::VectorXd content = tau_d - Cg; // Add the external torques to the desired torques
-      // if(!compensateExternalForces) content += externalTorques;
-      // refAccel = M.llt().solve(content);
       break;
     }
     default:
@@ -116,28 +122,32 @@ void RLController::tasksComputation(Eigen::VectorXd & currentTargetPosition)
   }
 }
 
-bool RLController::positionControl(bool run)
+void RLController::updateRobotCmdAfterQP()
 {
-  robot().forwardKinematics();
-  robot().forwardVelocity();
-  robot().forwardAcceleration();
   auto q = robot().mbc().q;
   auto alpha = robot().mbc().alpha;
-
-  if(!useQP) // Send RL Position directly
+  auto tau = robot().mbc().jointTorque;
+  
+  size_t i = 0;
+  for (const auto &joint_name : jointNames)
   {
-    size_t i = 0;
-    for (const auto &joint_name : jointNames)
-    {
-      q[robot().jointIndexByName(joint_name)][0] = q_rl_vector[i];
-      alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
-      i++;
-    }
-    robot().mbc().q = q;
-    robot().mbc().alpha = alpha; // Set velocity reference to zero
-    return true;
+    q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
+    alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
+    tau[robot().jointIndexByName(joint_name)][0] = tau_cmd[i];
+    i++;
   }
+  // Update q and qdot for position control
+  robot().mbc().q = q;
+  if(controlledByRL) robot().mbc().alpha = alpha; // For RL policy qdot ref = 0
+  // Update joint torques for torque control
+  robot().mbc().jointTorque = tau;
 
+  // Both are always updated despite they are not used by the robot
+  // They are still used by the QP
+}
+
+void RLController::computeInversePD()
+{
   // Using QP (TorqueTask or ForwardDynamics Task):  
   rbd::paramToVector(robot().mbc().alphaD, ddot_qp_w_floatingBase);
   ddot_qp = ddot_qp_w_floatingBase.tail(dofNumber); // Exclude the floating base part
@@ -148,61 +158,20 @@ bool RLController::positionControl(bool run)
   fd.computeC(robot().mb(), robot().mbc());
   Eigen::MatrixXd M_w_floatingBase = fd.H();
   Eigen::VectorXd Cg_w_floatingBase = fd.C();
-  Eigen::MatrixXd M = M_w_floatingBase.bottomRightCorner(dofNumber, dofNumber);
-  Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber);
 
-  Eigen::MatrixXd Kp_inv = current_kp.cwiseInverse().asDiagonal();
   auto extTorqueSensor = robot().device<mc_rbdyn::VirtualTorqueSensor>("ExtTorquesVirtSensor");
-  Eigen::VectorXd externalTorques = extTorqueSensor.torques().tail(dofNumber);
-
-  tau_qp = M*ddot_qp + Cg - externalTorques;
-  tau_qp_w_floatingBase.tail(dofNumber) = tau_qp;
+  Eigen::VectorXd tau_cmd_w_floatingBase = M_w_floatingBase*ddot_qp_w_floatingBase + Cg_w_floatingBase - extTorqueSensor.torques();
+  tau_cmd = tau_cmd_w_floatingBase.tail(dofNumber);
   
-  q_cmd = currentPos + Kp_inv*(tau_qp + current_kd.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
+  Eigen::MatrixXd Kp_inv = current_kp.cwiseInverse().asDiagonal();
 
-  tau_cmd_after_pd = current_kp.cwiseProduct(q_cmd - currentPos) - current_kd.cwiseProduct(currentVel); // PD control to get the commanded position after PD control
-  auto tau = robot().mbc().jointTorque;
-  
-  size_t i = 0;
-  for (const auto &joint_name : jointNames)
-  {
-    q[robot().jointIndexByName(joint_name)][0] = q_cmd[i];
-    alpha[robot().jointIndexByName(joint_name)][0] = 0.0;
-    tau[robot().jointIndexByName(joint_name)][0] = tau_cmd_after_pd[i];
-    i++;
-  }
-  if(controlledByRL) robot().mbc().alpha = alpha; // Update the mbc with the new velocity to respect the RL policy
-  robot().mbc().q = q; // Update the mbc with the new position
-  // To close the loop on the external torques:
-  robot().mbc().jointTorque = tau; // Update the mbc with the new torque
-  return run;
-}
-
-bool RLController::torqueControl(bool run)
-{
-  if (!useQP) // Compute RL torque
-  {
-    auto tau = robot().mbc().jointTorque;
-    tau_d = kp_vector.cwiseProduct(q_rl_vector - currentPos) - kd_vector.cwiseProduct(currentVel);
-    
-    size_t i = 0;
-    for (const auto &joint_name : jointNames)
-    {
-      tau[robot().jointIndexByName(joint_name)][0] = tau_d[i];
-      i++;
-    }
-
-    robot().mbc().jointTorque = tau;
-    return true;
-  }
-  return run;
+  q_cmd = currentPos + Kp_inv*(tau_cmd + current_kd.cwiseProduct(currentVel)); // Inverse PD control to get the commanded position <=> RL position control
 }
 
 void RLController::addLog()
 {
   // Robot State variables
   logger().addLogEntry("RLController_refAccel", [this]() { return refAccel; });
-  logger().addLogEntry("RLController_currentTargetPosition", [this]() { return q_rl_vector; });
   logger().addLogEntry("RLController_tau_d", [this]() { return tau_d; });
   logger().addLogEntry("RLController_kp", [this]() { return current_kp; });
   logger().addLogEntry("RLController_kd", [this]() { return current_kd; });
@@ -212,11 +181,11 @@ void RLController::addLog()
   logger().addLogEntry("RLController_ddot_qp", [this]() { return ddot_qp; });
   logger().addLogEntry("RLController_ddot_qp_w_floatingBase", [this]()
   { return ddot_qp_w_floatingBase; });
-  logger().addLogEntry("RLController_tau_qp", [this]() { return tau_qp; });
-  logger().addLogEntry("RLController_tau_qp_w_floatingBase", [this]() { return tau_qp_w_floatingBase; });
-  logger().addLogEntry("RLController_tau_cmd_after_pd_positionCtl", [this]() { return tau_cmd_after_pd; });
+  logger().addLogEntry("RLController_tau_cmd", [this]() { return tau_cmd; });
 
   // RL variables
+  logger().addLogEntry("RLController_q_rl", [this]() { return q_rl; });
+  logger().addLogEntry("RLController_tau_rl", [this]() { return tau_rl; });
   logger().addLogEntry("RLController_pastAction", [this]() { return a_simuOrder; });
   logger().addLogEntry("RLController_qZero", [this]() { return q_zero_vector; });
   logger().addLogEntry("RLController_a_before", [this]() { return a_before_vector; });
@@ -282,7 +251,8 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
 
   dofNumber = robot().mb().nrDof() - 6; // Remove the floating base part (6 DoF)
   refAccel = Eigen::VectorXd::Zero(dofNumber); // TVM
-  q_rl_vector = Eigen::VectorXd::Zero(dofNumber);
+  q_rl = Eigen::VectorXd::Zero(dofNumber);
+  tau_rl = Eigen::VectorXd::Zero(dofNumber);
   q_zero_vector = Eigen::VectorXd::Zero(dofNumber);
   tau_d = Eigen::VectorXd::Zero(dofNumber);
   kp_vector = Eigen::VectorXd::Zero(dofNumber);
@@ -294,10 +264,9 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
 
   ddot_qp = Eigen::VectorXd::Zero(dofNumber); // Desired acceleration in the QP solver
   ddot_qp_w_floatingBase = Eigen::VectorXd::Zero(robot().mb().nrDof()); // Desired acceleration in the QP solver with floating base
-  tau_qp = Eigen::VectorXd::Zero(dofNumber); // Torque in the QP solver
-  tau_qp_w_floatingBase = Eigen::VectorXd::Zero(robot().mb().nrDof()); // Torque in the QP solver with floating base
+  
+  tau_cmd = Eigen::VectorXd::Zero(dofNumber); // Final torque that control the robot
   q_cmd = Eigen::VectorXd::Zero(dofNumber); // The commended position send to the internal PD of the robot
-  tau_cmd_after_pd = Eigen::VectorXd::Zero(dofNumber); // The commended position after PD control
   
   // Get the gains from the configuration or set default values
   std::map<std::string, double> kp = config("kp");
@@ -322,10 +291,10 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
             kd_vector[i] = kd.at(joint_name);
             high_kp_vector[i] = high_kp.at(joint_name);
             high_kd_vector[i] = high_kd.at(joint_name);
-            q_rl_vector[i] = t[0];
+            q_rl[i] = t[0];
             q_zero_vector[i] = t[0];
             torque_target[joint_name] = {0.0};
-            mc_rtc::log::info("[RLController] Joint {}: currentTargetPosition {}, kp {}, kd {}", joint_name, q_rl_vector[i], kp_vector[i], kd_vector[i]);
+            mc_rtc::log::info("[RLController] Joint {}: currentTargetPosition {}, kp {}, kd {}", joint_name, q_rl[i], kp_vector[i], kd_vector[i]);
             i++;
         }
       }
@@ -333,6 +302,7 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
   current_kp = high_kp_vector;
   current_kd = high_kd_vector;
   solver().removeTask(FSMPostureTask);
+  datastore().make<std::string>("ControlMode", "Torque");
 }
 
 void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
@@ -343,10 +313,7 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
   rpy = mc_rbdyn::rpyFromMat(baseRot);
     
-  mc_rtc::log::info("[RLController] Posture target initialized with {} joints", dofNumber);
-
-  datastore().make<std::string>("ControlMode", "Torque");
-  
+  mc_rtc::log::info("[RLController] Posture target initialized with {} joints", dofNumber); 
 
   // Initialize reference position and last actions for action blending
   a_before_vector = Eigen::VectorXd::Zero(dofNumber);
@@ -358,7 +325,7 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   a_simuOrder = Eigen::VectorXd::Zero(dofNumber);
 
   mc_rtc::log::info("Reference position initialized with {} joints", q_zero_vector.size());
-  q_rl_vector = q_zero_vector;  // Start with reference position
+  q_rl = q_zero_vector;  // Start with reference position
   
   useAsyncInference_ = config("use_async_inference", true);
   mc_rtc::log::info("Async RL inference: {}", useAsyncInference_ ? "enabled" : "disabled");
@@ -367,6 +334,7 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   
   // Initialize new observation components
   cmd_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
+  cmd_ = {0.2, 0, 0};
   phase_ = 0.0;  // Phase for periodic gait
   phaseFreq_ = 1.2;  // Phase frequency in Hz
   startPhase_ = std::chrono::steady_clock::now();  // For phase calculation
@@ -479,7 +447,7 @@ void RLController::initializeState(bool torque_control, int task_type, bool cont
   {
     // Set low gains for RL
     if(isHighGain()) setPDGains(kp_vector, kd_vector);
-    tasksComputation(q_rl_vector);
+    tasksComputation(q_rl);
   }
   else
   {

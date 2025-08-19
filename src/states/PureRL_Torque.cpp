@@ -17,7 +17,7 @@ bool PureRL_Torque::run(mc_control::fsm::Controller & ctl_)
 {
   auto & ctl = static_cast<RLController&>(ctl_);
   ctl.utils_.run_rl_state(ctl, "PureRL_Torque");
-  ctl.tasksComputation(ctl.q_rl_vector);
+  ctl.tasksComputation(ctl.q_rl);
   return false;
 }
 
