@@ -333,8 +333,8 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   latestAction_ = Eigen::VectorXd::Zero(dofNumber);
   
   // Initialize new observation components
-  cmd_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
-  cmd_ = {0.2, 0, 0};
+  velCmdRL_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
+  velCmdRL_ = {0.0, 0, 0};
   phase_ = 0.0;  // Phase for periodic gait
   phaseFreq_ = 1.2;  // Phase frequency in Hz
   startPhase_ = std::chrono::steady_clock::now();  // For phase calculation

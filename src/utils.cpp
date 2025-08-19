@@ -173,7 +173,7 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
     obs(36) = cos(ctl.phase_);
 
     // Command (3 elements) - [vx, vy, yaw_rate]
-    obs.segment(37, 3) = ctl.cmd_;
+    obs.segment(37, 3) = ctl.velCmdRL_;
   }
   
   return obs;

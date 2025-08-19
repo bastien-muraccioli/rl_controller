@@ -108,7 +108,7 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d rpy; // Roll, Pitch, Yaw angles of the base
   Eigen::VectorXd legPos, legVel, legAction; // Leg position, velocity and action in mc_rtc order
 
-  Eigen::Vector3d cmd_;                        // Command vector [vx, vy, yaw_rate]
+  Eigen::Vector3d velCmdRL_;                        // Command vector [vx, vy, yaw_rate]
   double phase_;                               // Current phase for periodic gait
   double phaseFreq_;                           // Phase frequency (1.2 Hz)
   std::chrono::steady_clock::time_point startPhase_; // Start time for phase calculation
