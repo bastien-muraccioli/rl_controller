@@ -122,4 +122,14 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   // Timing and statistics
   bool logTiming_ = false;
   size_t timingLogInterval_ = 1000;  // Log every N steps
+
+  // Log constraints
+  Eigen::Vector3d leftAnklePos; 
+  Eigen::Vector3d rightAnklePos;
+  double ankleDistanceNorm;
+
+  Eigen::VectorXd jointLimitsPos_upper;
+  Eigen::VectorXd jointLimitsPos_lower;
+  Eigen::VectorXd jointLimitsVel_upper;
+  Eigen::VectorXd jointLimitsVel_lower;
 }; 

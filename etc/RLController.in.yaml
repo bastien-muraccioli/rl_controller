@@ -167,10 +167,10 @@ transitions:
 init: RL_QP_TorqueTask_Torque
 
 # RL Controller specific configuration
-# policy_path: "walking_policy.onnx"  # Your RL policy ONNX model path
-# is_walking_policy: true
-policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
-is_walking_policy: false
+policy_path: "walking_policy.onnx"  # Your RL policy ONNX model path
+is_walking_policy: true
+# policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
+# is_walking_policy: false
 
 # use_async_inference: true   # Enable asynchronous RL inference for better real-time performance
 use_async_inference: false  # Synchronous with the controller frequency

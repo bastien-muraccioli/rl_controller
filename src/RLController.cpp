@@ -1,5 +1,6 @@
 #include "RLController.h"
 #include <Eigen/src/Core/VectorBlock.h>
+#include <RBDyn/MultiBodyConfig.h>
 #include <eigen3/Eigen/src/Core/Matrix.h>
 #include <mc_rtc/logging.h>
 #include <mc_rbdyn/configuration_io.h>
@@ -47,6 +48,10 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc:
 
 bool RLController::run()
 {
+  leftAnklePos = robot().mbc().bodyPosW[robot().bodyIndexByName("left_ankle_link")].translation();
+  rightAnklePos = robot().mbc().bodyPosW[robot().bodyIndexByName("right_ankle_link")].translation();
+  ankleDistanceNorm = (leftAnklePos - rightAnklePos).norm();
+
   bool run = mc_control::fsm::Controller::run(mc_solver::FeedbackType::ClosedLoopIntegrateReal);
   robot().forwardKinematics();
   robot().forwardVelocity();
@@ -205,6 +210,13 @@ void RLController::addLog()
   logger().addLogEntry("RLController_useQP", [this]() { return useQP; });
   logger().addLogEntry("RLController_controlledByRL", [this]() { return controlledByRL; });
   logger().addLogEntry("RLController_taskType", [this]() { return taskType; });
+
+  // RL Controller
+  logger().addLogEntry("RLController_q_lim_upper", [this]() { return jointLimitsPos_upper; });
+  logger().addLogEntry("RLController_q_lim_lower", [this]() { return jointLimitsPos_lower; });
+  logger().addLogEntry("RLController_q_dot_lim_upper", [this]() { return jointLimitsVel_upper; });
+  logger().addLogEntry("RLController_q_dot_lim_lower", [this]() { return jointLimitsVel_lower; });
+  logger().addLogEntry("RLController_ankleDistanceNorm", [this]() { return ankleDistanceNorm; });
 }
 
 void RLController::addGui()
@@ -251,6 +263,29 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
   };
 
   dofNumber = robot().mb().nrDof() - 6; // Remove the floating base part (6 DoF)
+
+  leftAnklePos = robot().mbc().bodyPosW[robot().bodyIndexByName("left_ankle_link")].translation();
+  rightAnklePos = robot().mbc().bodyPosW[robot().bodyIndexByName("right_ankle_link")].translation();
+  ankleDistanceNorm = (leftAnklePos - rightAnklePos).norm();
+
+  Eigen::VectorXd qlimUpper = rbd::paramToVector(robot().mb(), robot().qu()).tail(dofNumber);
+  Eigen::VectorXd qlimLower = rbd::paramToVector(robot().mb(), robot().ql()).tail(dofNumber);
+  Eigen::VectorXd vlimUpper = rbd::paramToVector(robot().mb(), robot().vu()).tail(dofNumber);
+  Eigen::VectorXd vlimLower = rbd::paramToVector(robot().mb(), robot().vl()).tail(dofNumber);
+  Eigen::VectorXd tlimUpper = rbd::paramToVector(robot().mb(), robot().tu()).tail(dofNumber);
+  Eigen::VectorXd tlimLower = rbd::paramToVector(robot().mb(), robot().tl()).tail(dofNumber);
+
+  
+  jointLimitsPos_upper = qlimUpper - (qlimUpper - qlimLower)*0.01;
+  jointLimitsPos_lower = qlimLower + (qlimUpper - qlimLower)*0.01;
+
+  jointLimitsVel_upper = vlimUpper*0.9;
+  jointLimitsVel_lower = vlimLower*0.9;
+
+  mc_rtc::log::info("[RLController] Joint limits pos upper: {}", jointLimitsPos_upper.transpose());
+  mc_rtc::log::info("[RLController] Joint limits pos lower: {}", jointLimitsPos_lower.transpose());
+  mc_rtc::log::info("[RLController] Joint limits vel upper: {}", jointLimitsVel_upper.transpose());
+  mc_rtc::log::info("[RLController] Joint limits vel lower: {}", jointLimitsVel_lower.transpose());
   refAccel = Eigen::VectorXd::Zero(dofNumber); // TVM
   q_rl = Eigen::VectorXd::Zero(dofNumber);
   tau_rl = Eigen::VectorXd::Zero(dofNumber);
