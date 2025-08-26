@@ -27,11 +27,14 @@ struct utils
     std::mutex actionMutex_;
     std::mutex observationMutex_;
     std::condition_variable inferenceCondition_;
+    Eigen::VectorXd action;
 
     private:
         // State-specific data
         size_t stepCount_ = 0;
         double startTime_ = 0.0;
+        double syncTime_;
+        double syncPhase_ = 0.0;
         static constexpr double INFERENCE_PERIOD_MS = 25.0;  // 40Hz = 25ms period
         std::atomic<bool> shouldStopInference_ = false;
         std::atomic<bool> newObservationAvailable_ = false;

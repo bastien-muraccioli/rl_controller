@@ -8,8 +8,10 @@ void utils::start_rl_state(mc_control::fsm::Controller & ctl_, std::string state
   auto & ctl = static_cast<RLController&>(ctl_);
   mc_rtc::log::info("{} state started", state_name);
   lastInferenceTime_ = std::chrono::steady_clock::now();
+  action = Eigen::VectorXd::Zero(ctl.rlPolicy_->getActionSize());
 
   stepCount_ = 0;
+  syncTime_ = INFERENCE_PERIOD_MS / 1000;
   startTime_ = std::chrono::duration<double>(
     std::chrono::high_resolution_clock::now().time_since_epoch()).count();
     
@@ -44,41 +46,49 @@ void utils::run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_n
   
   try
   {
-    Eigen::VectorXd action;
-    
     if(ctl.useAsyncInference_)
     {
       updateObservationForInference(ctl);
       action = getLatestAction(ctl);
+      // Apply a new action and log if a new action was applied
+      bool newActionApplied = applyAction(ctl, action);
+      if(newActionApplied)
+      {
+        stepCount_++;
+        if(ctl.logTiming_ && (stepCount_ % ctl.timingLogInterval_ == 0))
+        {
+          auto endTime = std::chrono::high_resolution_clock::now();
+          auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+          
+          double currentTime = std::chrono::duration<double>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+          double avgFreq = stepCount_ / (currentTime - startTime_);
+          
+          const char* mode = ctl.useAsyncInference_ ? "async" : "sync";
+          mc_rtc::log::info("{} Step {} ({}): inference time = {} μs, avg policy freq = {:.1f} Hz",
+                            state_name, stepCount_, mode, duration.count(), avgFreq);
+
+          // mc_rtc::log::info("Action: min={:.3f}, max={:.3f}, norm={:.3f}",
+          //                   action.minCoeff(), action.maxCoeff(), action.norm());
+        }
+      }    
+    }
+    else if(syncTime_ >= INFERENCE_PERIOD_MS/1000)
+    {
+      // mc_rtc::log::info("FREQ: {:.1f} Hz", 1.0 / (syncTime_));
+      syncPhase_ += ctl.timeStep;
+      ctl.phase_ = fmod(syncPhase_ * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+      ctl.currentObservation_ = getCurrentObservation(ctl);
+      ctl.currentAction_ = ctl.rlPolicy_->predict(ctl.currentObservation_);
+      applyAction(ctl, ctl.currentAction_);
+      syncTime_ = 0.0;
     }
     else
     {
-      Eigen::VectorXd observation = getCurrentObservation(ctl); 
-      action = ctl.rlPolicy_->predict(observation);
+      syncTime_ += ctl.timeStep;
+      syncPhase_ += ctl.timeStep;
+      ctl.phase_ = fmod(syncPhase_ * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
     }
-
-    // Apply a new action and log if a new action was applied
-    bool newActionApplied = applyAction(ctl, action);
-    if(newActionApplied)
-    {
-      stepCount_++;
-      if(ctl.logTiming_ && (stepCount_ % ctl.timingLogInterval_ == 0))
-      {
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
-        
-        double currentTime = std::chrono::duration<double>(
-          std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-        double avgFreq = stepCount_ / (currentTime - startTime_);
-        
-        const char* mode = ctl.useAsyncInference_ ? "async" : "sync";
-        mc_rtc::log::info("{} Step {} ({}): inference time = {} μs, avg policy freq = {:.1f} Hz",
-                          state_name, stepCount_, mode, duration.count(), avgFreq);
-
-        // mc_rtc::log::info("Action: min={:.3f}, max={:.3f}, norm={:.3f}",
-        //                   action.minCoeff(), action.maxCoeff(), action.norm());
-      }
-    }    
   }
   catch(const std::exception & e)
   {
@@ -165,9 +175,12 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
   if (ctl.isWalkingPolicy)
   {
     // Phase
-    auto currentTime = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
-    ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+    if(ctl.useAsyncInference_)
+    {
+      auto currentTime = std::chrono::steady_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
+      ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+    }
 
     obs(35) = sin(ctl.phase_);
     obs(36) = cos(ctl.phase_);
@@ -185,7 +198,7 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
   bool newActionApplied = false;
   if(action.size() != ctl.dofNumber)
   {
-    mc_rtc::log::error("Action size mismatch: expected dofNumber, got {}", action.size());
+    mc_rtc::log::error("Action size mismatch: expected {}, got {}", ctl.dofNumber, action.size());
     return newActionApplied;
   }
       

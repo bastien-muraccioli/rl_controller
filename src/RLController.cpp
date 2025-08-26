@@ -199,6 +199,7 @@ void RLController::addLog()
   logger().addLogEntry("RLController_legPos", [this]() { return legPos; });
   logger().addLogEntry("RLController_legVel", [this]() { return legVel; });
   logger().addLogEntry("RLController_legAction", [this]() { return legAction; });
+  logger().addLogEntry("RLController_phase", [this]() { return phase_; });
   
   // Controller state variables
   logger().addLogEntry("RLController_useQP", [this]() { return useQP; });
@@ -334,8 +335,8 @@ void RLController::initializeRLPolicy(const mc_rtc::Configuration & config)
   
   // Initialize new observation components
   velCmdRL_ = Eigen::Vector3d::Zero();  // Default command (x, y, yaw)
+  // velCmdRL_(1) = -20;
   phase_ = 0.0;  // Phase for periodic gait
-  phaseFreq_ = 1.2;  // Phase frequency in Hz
   startPhase_ = std::chrono::steady_clock::now();  // For phase calculation
   
   std::string policyPath = config("policy_path", std::string(""));
@@ -438,6 +439,11 @@ void RLController::initializeState(bool torque_control, int task_type, bool cont
 {
   if(torque_control) datastore().get<std::string>("ControlMode") = "Torque";
   else datastore().get<std::string>("ControlMode") = "Position";
+
+  if (!datastore().call<bool>("EF_Estimator::isActive")) {
+    datastore().call("EF_Estimator::toggleActive");
+  }
+
   useQP = true;
   if(task_type == PURE_RL) useQP = false;
   else taskType = task_type;

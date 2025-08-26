@@ -110,7 +110,7 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   Eigen::Vector3d velCmdRL_;                        // Command vector [vx, vy, yaw_rate]
   double phase_;                               // Current phase for periodic gait
-  double phaseFreq_;                           // Phase frequency (1.2 Hz)
+  double phaseFreq_ = 1.2;                           // Phase frequency (1.2 Hz)
   std::chrono::steady_clock::time_point startPhase_; // Start time for phase calculation
     
   Eigen::VectorXd currentObservation_;   // Protected by observationMutex_
