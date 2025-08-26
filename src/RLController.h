@@ -132,4 +132,6 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd jointLimitsPos_lower;
   Eigen::VectorXd jointLimitsVel_upper;
   Eigen::VectorXd jointLimitsVel_lower;
-}; 
+  Eigen::VectorXd jointLimitsHardVel_upper;
+  Eigen::VectorXd jointLimitsHardVel_lower;
+};

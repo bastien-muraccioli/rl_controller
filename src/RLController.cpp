@@ -216,6 +216,8 @@ void RLController::addLog()
   logger().addLogEntry("RLController_q_lim_lower", [this]() { return jointLimitsPos_lower; });
   logger().addLogEntry("RLController_q_dot_lim_upper", [this]() { return jointLimitsVel_upper; });
   logger().addLogEntry("RLController_q_dot_lim_lower", [this]() { return jointLimitsVel_lower; });
+  logger().addLogEntry("RLController_q_dot_limHard_upper", [this]() { return jointLimitsHardVel_upper; });
+  logger().addLogEntry("RLController_q_dot_limHard_lower", [this]() { return jointLimitsHardVel_lower; });
   logger().addLogEntry("RLController_ankleDistanceNorm", [this]() { return ankleDistanceNorm; });
 }
 
@@ -270,8 +272,8 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
 
   Eigen::VectorXd qlimUpper = rbd::paramToVector(robot().mb(), robot().qu()).tail(dofNumber);
   Eigen::VectorXd qlimLower = rbd::paramToVector(robot().mb(), robot().ql()).tail(dofNumber);
-  Eigen::VectorXd vlimUpper = rbd::paramToVector(robot().mb(), robot().vu()).tail(dofNumber);
-  Eigen::VectorXd vlimLower = rbd::paramToVector(robot().mb(), robot().vl()).tail(dofNumber);
+  jointLimitsHardVel_upper = rbd::paramToVector(robot().mb(), robot().vu()).tail(dofNumber);
+  jointLimitsHardVel_lower = rbd::paramToVector(robot().mb(), robot().vl()).tail(dofNumber);
   Eigen::VectorXd tlimUpper = rbd::paramToVector(robot().mb(), robot().tu()).tail(dofNumber);
   Eigen::VectorXd tlimLower = rbd::paramToVector(robot().mb(), robot().tl()).tail(dofNumber);
 
@@ -279,8 +281,8 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
   jointLimitsPos_upper = qlimUpper - (qlimUpper - qlimLower)*0.01;
   jointLimitsPos_lower = qlimLower + (qlimUpper - qlimLower)*0.01;
 
-  jointLimitsVel_upper = vlimUpper*0.9;
-  jointLimitsVel_lower = vlimLower*0.9;
+  jointLimitsVel_upper = jointLimitsHardVel_upper*0.9;
+  jointLimitsVel_lower = jointLimitsHardVel_lower*0.9;
 
   mc_rtc::log::info("[RLController] Joint limits pos upper: {}", jointLimitsPos_upper.transpose());
   mc_rtc::log::info("[RLController] Joint limits pos lower: {}", jointLimitsPos_lower.transpose());
