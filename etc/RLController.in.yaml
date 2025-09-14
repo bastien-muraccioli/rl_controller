@@ -37,19 +37,35 @@ ObserverPipelines:
       config:
           velocity: encoderVelocities
 
-    - type: Attitude
+    # - type: Attitude
+    #   required: true
+    #   update: false
+
+    # - type: BodySensor
+    #   update: false
+    #   # config:
+    #   #   bodySensor: FloatingBase
+
+    - type: Tilt
       required: true
       update: true
+      config:
+        anchorFrameFunction: anchorFrameFunction
+        filterGains:
+          initAlpha: 2 # 5 # 0.0
+          initBeta: 2 # 1 # 0.0 # 0.00001
+          initGamma: 1 # 2 # 0.0
+          finalAlpha: 2 # 5 # 0.0
+          finalBeta: 2 # 1 # 0.0 # 0.00001
+          finalGamma: 1 # 2 # 0.0
+
 
     # - type: KinematicInertial
     #   update: true
     #   config:
     #     imuBodySensor: Accelerometer
 
-    # - type: BodySensor
-    #   update: true
-    #   config:
-    #     bodySensor: FloatingBase
+
 
 # Transition from initial state to RL execution
 transitions:
@@ -164,10 +180,15 @@ transitions:
 - [Posture_TorqueTask_Pos, transition_Posture_FDTask_Pos, Posture_FDTask_Pos, Strict]
 - [Posture_TorqueTask_Pos, transition_Posture_TorqueTask_Torque, Posture_TorqueTask_Torque, Strict]
 
-init: RL_QP_TorqueTask_Torque
+# init: PureRL_Pos
+# init: RL_QP_TorqueTask_Pos
+init: RL_QP_FDTask_Pos
+# init: Posture_FDTask_Pos
+
 
 # RL Controller specific configuration
-policy_path: "walking_policy.onnx"  # Your RL policy ONNX model path
+policy_path: "danger_walking.onnx" #"walking_policy.onnx"  # Your RL policy ONNX model path
+# policy_path: "walking_policy.onnx"
 is_walking_policy: true
 # policy_path: "standing_policy.onnx"  # Your RL policy ONNX model path
 # is_walking_policy: false
@@ -206,12 +227,12 @@ high_kd:
     left_hip_roll_joint: 25.0
     left_hip_pitch_joint: 25.0
     left_knee_joint: 25.0
-    left_ankle_joint: 25.0
+    left_ankle_joint: 75.0
     right_hip_yaw_joint: 25.0
     right_hip_roll_joint: 25.0
     right_hip_pitch_joint: 25.0
     right_knee_joint: 25.0
-    right_ankle_joint: 25.0
+    right_ankle_joint: 75.0
     torso_joint: 6.0
     left_shoulder_pitch_joint: 2.0
     left_shoulder_roll_joint: 2.0

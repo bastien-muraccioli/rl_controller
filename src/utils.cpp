@@ -129,12 +129,14 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
   auto & real_robot = ctl.realRobot(ctl.robots()[0].name());
   auto & imu = ctl.robot().bodySensor("Accelerometer");
   
-  // ctl.baseAngVel = real_robot.bodyVelW("pelvis").angular();
+  // ctl.baseAngVel = robot.bodyVelW("pelvis").angular();
   ctl.baseAngVel = imu.angularVelocity();
-  obs.segment(0, 3) = ctl.baseAngVel; //base angular vel
-  
-  // Eigen::Matrix3d baseRot = real_robot.bodyPosW("pelvis").rotation();
-  Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix();
+  obs(0) = ctl.baseAngVel.x(); //base angular vel
+  obs(1) = ctl.baseAngVel.y();
+  obs(2) = ctl.baseAngVel.z();
+
+  // Eigen::Matrix3d baseRot = robot.bodyPosW("pelvis").rotation();
+  Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix().normalized();
   ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
   obs(3) = ctl.rpy(0);  // roll
   obs(4) = ctl.rpy(1);  // pitch
@@ -211,8 +213,6 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     ctl.a_before_vector = ctl.a_vector;
     // Run new inference and update target position
     ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(action, ctl.dofNumber);
-    // Apply action blending formula: target_qpos = default_qpos + 0.75 * action + 0.25 * previous_actions
-    // ctl.q_rl_vector = ctl.q_zero_vector + 0.75 * ctl.a_vector + 0.25 * ctl.a_before_vector;
     ctl.q_rl = ctl.q_zero_vector + ctl.a_vector;
 
     // For not controlled joints, use the zero position
@@ -241,19 +241,6 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
 
     static int inferenceCounter = 0;
     inferenceCounter++;
-    
-    // mc_rtc::log::info("=== RLController Policy I/O Inference #{} ===", inferenceCounter);
-    // mc_rtc::log::info("Policy Input ({} obs): [", ctl.rlPolicy_->getObservationSize());
-    // for(int i = 0; i < ctl.rlPolicy_->getObservationSize(); ++i) {
-    //   mc_rtc::log::info("  [{}]: {:.6f}", i, currentObs(i));
-    // }
-    // mc_rtc::log::info("]");
-    // mc_rtc::log::info("Blended Target Position (dofNumber): [");
-    // for(int i = 0; i < ctl.dofNumber; ++i) {
-    //   mc_rtc::log::info("  [{}]: {:.6f}", i, ctl.q_rl_vector(i));
-    // }
-    // mc_rtc::log::info("]");
-    // mc_rtc::log::info("=== End Policy I/O ===");
   }
   
   // Get current joint positions and velocities

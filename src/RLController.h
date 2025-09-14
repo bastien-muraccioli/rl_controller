@@ -37,11 +37,16 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   void updateRobotCmdAfterQP();
   void computeInversePD(); // Update q_cmd based on QP acceleration
+  void computeLimits();
 
   void tasksComputation(Eigen::VectorXd & currentTargetPosition);
   std::tuple<Eigen::VectorXd, Eigen::VectorXd> getPDGains();
   bool setPDGains(Eigen::VectorXd p_vec, Eigen::VectorXd d_vec);
   bool isHighGain(double tol = 1e-9);
+  std::pair<sva::PTransformd, Eigen::Vector3d>  createContactAnchor(const mc_rbdyn::Robot & anchorRobot);
+
+  void addRLConstraints(); // Add constraints specific to the RL policy
+  void computeRLStateSimulated(); // Compute the state of the robot as if it was simulated with the RL policy
 
   bool isWalkingPolicy = false;
 
@@ -75,11 +80,16 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd tau_d;  // torque sends to a task (Torque Task or Forward Dynamics Task)
   Eigen::VectorXd currentPos;
   Eigen::VectorXd currentVel;
+  Eigen::VectorXd currentTau;
 
   // For position control
   Eigen::VectorXd ddot_qp;
   Eigen::VectorXd ddot_qp_w_floatingBase;
   Eigen::VectorXd tau_cmd; // Torque computed from the QP acceleration
+  Eigen::VectorXd tau_err; // Difference between tau_cmd and tau_rl
+  double tau_err_norm = 0.0;
+  Eigen::VectorXd qddot_err;
+  double qddot_err_norm = 0.0;
   Eigen::VectorXd q_cmd;
   Eigen::VectorXd q_cmd_w_floatingBase;
 
@@ -101,6 +111,9 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   
   std::chrono::steady_clock::time_point lastInferenceTime_;
   Eigen::VectorXd q_rl;  // Hold target position between inference calls
+  Eigen::VectorXd q_rl_simulatedMeasure;
+  Eigen::VectorXd qdot_rl_simulatedMeasure;
+  Eigen::VectorXd qddot_rl_simulatedMeasure;
   Eigen::VectorXd tau_rl; // Only use for logging
 
   // observation data - Policy specific
@@ -128,10 +141,48 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d rightAnklePos;
   double ankleDistanceNorm;
 
+  double velPercent = 0.9;
+  double dsPercent = 0.01;
+  double diPercent = 0.2;
+
   Eigen::VectorXd jointLimitsPos_upper;
   Eigen::VectorXd jointLimitsPos_lower;
+  Eigen::VectorXd jointLimitsHardPos_upper;
+  Eigen::VectorXd jointLimitsHardPos_lower;
   Eigen::VectorXd jointLimitsVel_upper;
   Eigen::VectorXd jointLimitsVel_lower;
   Eigen::VectorXd jointLimitsHardVel_upper;
   Eigen::VectorXd jointLimitsHardVel_lower;
+  Eigen::VectorXd jointLimitsHardTau_upper;
+  Eigen::VectorXd jointLimitsHardTau_lower;
+
+  Eigen::VectorXd limitBreached_q_soft_upper;
+  Eigen::VectorXd limitBreached_q_soft_lower;
+  Eigen::VectorXd limitBreached_q_hard_upper;
+  Eigen::VectorXd limitBreached_q_hard_lower;
+  Eigen::VectorXd limitBreached_qDot_soft_upper;
+  Eigen::VectorXd limitBreached_qDot_soft_lower;
+  Eigen::VectorXd limitBreached_qDot_hard_upper;
+  Eigen::VectorXd limitBreached_qDot_hard_lower;
+  Eigen::VectorXd limitBreached_tau_upper;
+  Eigen::VectorXd limitBreached_tau_lower;
+
+  // State after QP without any modification
+  std::vector<std::vector<double>> qOut;
+  std::vector<std::vector<double>> alphaOut;
+  std::vector<std::vector<double>> tauOut;
+
+  // Floating base
+  Eigen::VectorXd floatingBase_qOut;
+  Eigen::VectorXd floatingBase_alphaOut;
+  Eigen::VectorXd floatingBase_tauOut;
+
+  Eigen::VectorXd floatingBase_qOutPD;
+  Eigen::VectorXd floatingBase_alphaOutPD;
+  Eigen::VectorXd floatingBase_tauOutPD;
+
+  Eigen::VectorXd floatingBase_qIn;
+  Eigen::VectorXd floatingBase_alphaIn;
+
+  double counter = 0.0;
 };
