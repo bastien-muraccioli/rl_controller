@@ -20,7 +20,7 @@
 RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc::Configuration & config)
 : mc_control::fsm::Controller(rm, dt, config, Backend::TVM)
 {
-  currentPolicyIndex = 0;  // Start with first policy
+  currentPolicyIndex = config("default_policy_index", 0);
   loadConfig(config);
 
   //Initialize Constraints
@@ -46,11 +46,13 @@ RLController::RLController(mc_rbdyn::RobotModulePtr rm, double dt, const mc_rtc:
 
 bool RLController::run()
 {
+
   // Test joystick inputs
   if(datastore().has("Joystick::connected") && datastore().get<bool>("Joystick::connected"))
   {
     RLuseJoyStickInputs();
   }
+
   
   counter += timeStep;
   leftAnklePos = robot().mbc().bodyPosW[robot().bodyIndexByName("left_ankle_link")].translation();
@@ -236,7 +238,28 @@ void RLController::tasksComputation(Eigen::VectorXd & currentTargetPosition)
   {
     torque_target[joint_name][0] = tau_d[i];
     i++;
-  }  
+  }
+
+  // Arms gravity compensation --------------------------------
+  if(arm_gravity_compensation)
+  {
+    rbd::ForwardDynamics fd(real_robot.mb());
+    fd.computeH(real_robot.mb(), real_robot.mbc());
+    fd.computeC(real_robot.mb(), real_robot.mbc());
+    Eigen::MatrixXd M_w_floatingBase = fd.H();
+    Eigen::VectorXd Cg_w_floatingBase = fd.C();
+    Eigen::VectorXd Cg = Cg_w_floatingBase.tail(dofNumber); // Exclude the floating base part
+    size_t i = 0;
+    for (const auto &joint_name : jointNames)
+    {
+      if (std::find(arm_joint_names.begin(), arm_joint_names.end(), joint_name) != arm_joint_names.end()) 
+      {
+        torque_target[joint_name][0] = Cg[i];
+      }
+      i++;
+    }
+  }
+
 }
 
 void RLController::updateRobotCmdAfterQP()
@@ -436,6 +459,8 @@ void RLController::addGui(const mc_rtc::Configuration & config)
 {
   gui()->addElement({"RLController", "Options"},
   mc_rtc::gui::Checkbox("Compensate External Forces", compensateExternalForces));
+  gui()->addElement({"RLController", "Options"},
+  mc_rtc::gui::Checkbox("Arm Gravity Compensation", arm_gravity_compensation));
   // Add a button to change the velocity command
   gui()->addElement({"RLController", "Policy"},
   mc_rtc::gui::ArrayInput("Velocity Command RL", {"X", "Y", "Yaw"}, velCmdRL_));

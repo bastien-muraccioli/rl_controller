@@ -157,9 +157,9 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d rightAnklePos;
   double ankleDistanceNorm;
 
-  double velPercent = 0.9;
-  double dsPercent = 0.01;
-  double diPercent = 0.4;
+  double velPercent = 0.8;
+  double dsPercent = 0.05;
+  double diPercent = 0.2;
 
   Eigen::VectorXd jointLimitsPos_upper;
   Eigen::VectorXd jointLimitsPos_lower;
@@ -198,4 +198,15 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   double maxVelCmd;
   double maxYawCmd;
   sva::PTransformd contact_anchor_tf;
+  std::vector<std::string> arm_joint_names = {
+      "left_shoulder_pitch_joint",  
+      "left_shoulder_roll_joint",     
+      "left_shoulder_yaw_joint",    
+      "left_elbow_joint",           
+      "right_shoulder_pitch_joint", 
+      "right_shoulder_roll_joint",  
+      "right_shoulder_yaw_joint",   
+      "right_elbow_joint"
+    };
+  bool arm_gravity_compensation = false;
 };

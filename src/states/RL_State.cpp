@@ -13,7 +13,6 @@ void RL_State::start(mc_control::fsm::Controller & ctl_)
   }
   ctl.utils_.start_rl_state(ctl, "RL_State");
   ctl.initializeState();
-  ctl.datastore().get<std::string>("ControlMode") = "Torque";
   ctl.torqueTask->target(ctl.torque_target);
   ctl.solver().addTask(ctl.torqueTask);
   mc_rtc::log::info("RLState started");
