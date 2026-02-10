@@ -1,7 +1,6 @@
 #pragma once
 
 #include <mc_control/fsm/Controller.h>
-#include <mc_rtc/Configuration.h>
 #include <mc_tasks/TorqueTask.h>
 #include <mc_tasks/PostureTask.h>
 
@@ -30,60 +29,55 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
 
   void reset(const mc_control::ControllerResetData & reset_data) override;
 
-  void RLuseJoyStickInputs();
-
-  void loadConfig(const mc_rtc::Configuration & config);
-  void switchPolicy(int policyIndex, const mc_rtc::Configuration & config);  // Switch to a different policy at runtime
-
   void addLog();
-  void addGui(const mc_rtc::Configuration & config);
+  void addGui();
   void initializeRobot(const mc_rtc::Configuration & config);
   void initializeRLPolicy(const mc_rtc::Configuration & config);
-  void initializeState();
-
-  void configRL(const mc_rtc::Configuration & config);
+  void initializeState(bool torque_control, int task_type, bool controlled_by_rl);
 
   void updateRobotCmdAfterQP();
   void computeInversePD(); // Update q_cmd based on QP acceleration
+  void computeLimits();
 
   void tasksComputation(Eigen::VectorXd & currentTargetPosition);
   std::tuple<Eigen::VectorXd, Eigen::VectorXd> getPDGains();
   bool setPDGains(Eigen::VectorXd p_vec, Eigen::VectorXd d_vec);
-  bool gainsUpdateRequired(double tol = 1e-9);
+  bool isHighGain(double tol = 1e-9);
   std::pair<sva::PTransformd, Eigen::Vector3d>  createContactAnchor(const mc_rbdyn::Robot & anchorRobot);
 
+  void addRLConstraints(); // Add constraints specific to the RL policy
   void computeRLStateSimulated(); // Compute the state of the robot as if it was simulated with the RL policy
 
-  double tau_left_elbow_joint_ = 0.0;
+  bool isWalkingPolicy = false;
 
-  // Task
+  // Tasks
+  std::shared_ptr<mc_tasks::PostureTask> FDTask;
   std::shared_ptr<mc_tasks::TorqueTask> torqueTask;
 
   std::map<std::string, std::vector<double>> torque_target; // Target torques for the torque task;
+  int taskType = FD_TASK;
   bool useQP = true;
-  bool isTorqueControl = false;
-  double pd_gains_ratio = 1.0;
+  bool controlledByRL = true;
 
   // Robot specific data
-  std::string robotName;
   std::vector<std::string> jointNames;
   size_t dofNumber_with_floatingBase = 0;
   size_t dofNumber = 0;
 
   // Gains
-  Eigen::VectorXd kp_vector;  // Gains set to the robot/simulator = pd_gains_ratio * rl_kp
-  Eigen::VectorXd kd_vector;  // Gains set to the robot/simulator = pd_gains_ratio * rl_kd
-  Eigen::VectorXd current_kp; // Gains get from the robot/simulator, used to check if we need to update
-  Eigen::VectorXd current_kd; // Gains get from the robot/simulator, used to check if we need to update
-  Eigen::VectorXd rl_kp; // Base RL PD gains from config
-  Eigen::VectorXd rl_kd; // Base RL PD gains from config
+  Eigen::VectorXd kp_vector;
+  Eigen::VectorXd kd_vector;
+  Eigen::VectorXd high_kp_vector;
+  Eigen::VectorXd high_kd_vector;
+  Eigen::VectorXd current_kp;
+  Eigen::VectorXd current_kd;
 
   // Options
   bool compensateExternalForces = false;
 
   // Robot state 
   Eigen::VectorXd refAccel;
-  Eigen::VectorXd tau_d;  // torque sends to a task
+  Eigen::VectorXd tau_d;  // torque sends to a task (Torque Task or Forward Dynamics Task)
   Eigen::VectorXd currentPos;
   Eigen::VectorXd currentVel;
   Eigen::VectorXd currentTau;
@@ -104,15 +98,13 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd a_before_vector;             // Last actions applied
   Eigen::VectorXd a_vector;                    // Action in mc_rtc order
 
+  std::vector<std::string> notControlledJoints; // Joints that are not controlled by the RL controller: arms + torso, in that case q_rl = q_zero
   std::vector<std::string> mcRtcJointsOrder;
-  std::vector<int> usedJoints_mcRtcOrder; // Indices of the leg joints in the mc_rtc order
   
   Eigen::VectorXd a_simuOrder;
-  std::vector<int> usedJoints_simuOrder; // Indices of the leg joints in the Simulator order
+  std::vector<int> usedJoints_simuOrder; // Indices of the leg joints in the Maniskill order
 
   // RL policy 
-  std::vector<std::string> policyPaths;
-  int currentPolicyIndex = 0;
   std::unique_ptr<RLPolicyInterface> rlPolicy_;
   std::unique_ptr<PolicySimulatorHandling> policySimulatorHandling_;
   utils utils_; // Utility functions for RL controller
@@ -128,14 +120,6 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d baseAngVel; // Angular velocity of the base
   Eigen::Vector3d rpy; // Roll, Pitch, Yaw angles of the base
   Eigen::VectorXd legPos, legVel, legAction; // Leg position, velocity and action in mc_rtc order
-
-  Eigen::Vector3d baseAngVel_prev; // Angular velocity of the base
-  Eigen::Vector3d rpy_prev; // Roll, Pitch, Yaw angles of the base
-  Eigen::VectorXd legPos_prev, legVel_prev, legAction_prev; // Leg position, velocity and action in mc_rtc order
-
-  Eigen::Vector3d baseAngVel_prev_prev; // Angular velocity of the base
-  Eigen::Vector3d rpy_prev_prev; // Roll, Pitch, Yaw angles of the base
-  Eigen::VectorXd legPos_prev_prev, legVel_prev_prev, legAction_prev_prev; // Leg position, velocity and action in mc_rtc order
 
   Eigen::Vector3d velCmdRL_;                        // Command vector [vx, vy, yaw_rate]
   double phase_;                               // Current phase for periodic gait
@@ -157,8 +141,8 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::Vector3d rightAnklePos;
   double ankleDistanceNorm;
 
-  double velPercent = 0.8;
-  double dsPercent = 0.05;
+  double velPercent = 0.9;
+  double dsPercent = 0.01;
   double diPercent = 0.2;
 
   Eigen::VectorXd jointLimitsPos_upper;
@@ -171,6 +155,17 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd jointLimitsHardVel_lower;
   Eigen::VectorXd jointLimitsHardTau_upper;
   Eigen::VectorXd jointLimitsHardTau_lower;
+
+  Eigen::VectorXd limitBreached_q_soft_upper;
+  Eigen::VectorXd limitBreached_q_soft_lower;
+  Eigen::VectorXd limitBreached_q_hard_upper;
+  Eigen::VectorXd limitBreached_q_hard_lower;
+  Eigen::VectorXd limitBreached_qDot_soft_upper;
+  Eigen::VectorXd limitBreached_qDot_soft_lower;
+  Eigen::VectorXd limitBreached_qDot_hard_upper;
+  Eigen::VectorXd limitBreached_qDot_hard_lower;
+  Eigen::VectorXd limitBreached_tau_upper;
+  Eigen::VectorXd limitBreached_tau_lower;
 
   // State after QP without any modification
   std::vector<std::vector<double>> qOut;
@@ -189,24 +184,6 @@ struct RLController_DLLAPI RLController : public mc_control::fsm::Controller
   Eigen::VectorXd floatingBase_qIn;
   Eigen::VectorXd floatingBase_alphaIn;
 
-  double counter = 0.0; // Time counter in seconds
-
-  std::vector<bool> DirectionButtons = std::vector<bool>(4, false); // Up, Down, Left, Right
-  double joystickDeadZone = 0.02; // Dead zone for joystick inputs
-  Eigen::Vector2d leftStick = Eigen::Vector2d(0.5, 0.5); // x (UP), y (LEFT)
-  Eigen::Vector2d rightStick = Eigen::Vector2d(0.5, 0.5); // x (UP), y (LEFT)
-  double maxVelCmd;
-  double maxYawCmd;
-  sva::PTransformd contact_anchor_tf;
-  std::vector<std::string> arm_joint_names = {
-      "left_shoulder_pitch_joint",  
-      "left_shoulder_roll_joint",     
-      "left_shoulder_yaw_joint",    
-      "left_elbow_joint",           
-      "right_shoulder_pitch_joint", 
-      "right_shoulder_roll_joint",  
-      "right_shoulder_yaw_joint",   
-      "right_elbow_joint"
-    };
-  bool arm_gravity_compensation = false;
+  double counter = 0.0;
+  double experimentDuration = 0.0;
 };

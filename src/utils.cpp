@@ -1,6 +1,4 @@
 #include "utils.h"
-#include <Eigen/src/Core/Matrix.h>
-#include <cstddef>
 #include <mc_rtc/logging.h>
 
 #include "RLController.h"
@@ -69,23 +67,27 @@ void utils::run_rl_state(mc_control::fsm::Controller & ctl_, std::string state_n
           const char* mode = ctl.useAsyncInference_ ? "async" : "sync";
           mc_rtc::log::info("{} Step {} ({}): inference time = {} μs, avg policy freq = {:.1f} Hz",
                             state_name, stepCount_, mode, duration.count(), avgFreq);
+
+          // mc_rtc::log::info("Action: min={:.3f}, max={:.3f}, norm={:.3f}",
+          //                   action.minCoeff(), action.maxCoeff(), action.norm());
         }
       }    
+    }
+    else if(syncTime_ >= INFERENCE_PERIOD_MS/1000)
+    {
+      // mc_rtc::log::info("FREQ: {:.1f} Hz", 1.0 / (syncTime_));
+      syncPhase_ += ctl.timeStep;
+      ctl.phase_ = fmod(syncPhase_ * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
+      ctl.currentObservation_ = getCurrentObservation(ctl);
+      ctl.currentAction_ = ctl.rlPolicy_->predict(ctl.currentObservation_);
+      applyAction(ctl, ctl.currentAction_);
+      syncTime_ = 0.0;
     }
     else
     {
       syncTime_ += ctl.timeStep;
       syncPhase_ += ctl.timeStep;
       ctl.phase_ = fmod(syncPhase_ * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
-      if(syncTime_ >= INFERENCE_PERIOD_MS/1000)
-      {
-        // syncTime_ -=ctl.timeStep;
-        // // mc_rtc::log::info("FREQ: {:.1f} Hz", 1.0 / (syncTime_));
-        ctl.currentObservation_ = getCurrentObservation(ctl);
-        ctl.currentAction_ = ctl.rlPolicy_->predict(ctl.currentObservation_);
-        applyAction(ctl, ctl.currentAction_);
-        syncTime_ = 0.0;
-      }
     }
   }
   catch(const std::exception & e)
@@ -126,232 +128,67 @@ Eigen::VectorXd utils::getCurrentObservation(mc_control::fsm::Controller & ctl_)
   auto & robot = ctl.robots()[0];
   auto & real_robot = ctl.realRobot(ctl.robots()[0].name());
   auto & imu = ctl.robot().bodySensor("Accelerometer");
+  
+  // ctl.baseAngVel = robot.bodyVelW("pelvis").angular();
+  ctl.baseAngVel = imu.angularVelocity();
+  obs(0) = ctl.baseAngVel.x(); //base angular vel
+  obs(1) = ctl.baseAngVel.y();
+  obs(2) = ctl.baseAngVel.z();
 
-  switch (ctl.currentPolicyIndex) {
-    case 0:
-    {
-      // ctl.baseAngVel = robot.bodyVelW("pelvis").angular();
-      ctl.baseAngVel_prev_prev = ctl.baseAngVel_prev;
-      ctl.baseAngVel_prev = ctl.baseAngVel;
-      ctl.baseAngVel = imu.angularVelocity();
-      obs(0) = ctl.baseAngVel.x(); //base angular vel
-      obs(1) = ctl.baseAngVel.y();
-      obs(2) = ctl.baseAngVel.z();
+  // Eigen::Matrix3d baseRot = robot.bodyPosW("pelvis").rotation();
+  Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix().normalized();
+  ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
+  obs(3) = ctl.rpy(0);  // roll
+  obs(4) = ctl.rpy(1);  // pitch
 
-      // Eigen::Matrix3d baseRot = robot.bodyPosW("pelvis").rotation();
-      Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix().normalized();
-      ctl.rpy_prev_prev = ctl.rpy_prev;
-      ctl.rpy_prev = ctl.rpy;
-      ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
-      obs(3) = ctl.rpy(0);  // roll
-      obs(4) = ctl.rpy(1);  // pitch
+  Eigen::VectorXd reorderedPos = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentPos, ctl.dofNumber);
+  Eigen::VectorXd reorderedVel = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentVel, ctl.dofNumber);
 
-      Eigen::VectorXd reorderedPos = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentPos, ctl.dofNumber);
-      Eigen::VectorXd reorderedVel = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentVel, ctl.dofNumber);
-
-      ctl.legPos_prev_prev = ctl.legPos_prev;
-      ctl.legPos_prev = ctl.legPos;
-      ctl.legVel_prev_prev = ctl.legVel_prev;
-      ctl.legVel_prev = ctl.legVel;
-      ctl.legAction_prev_prev = ctl.legAction_prev;
-      ctl.legAction_prev = ctl.legAction;
-
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= reorderedPos.size()) {
-          mc_rtc::log::error("Leg joint index {} out of bounds for reordered size {}", idx, reorderedPos.size());
-          ctl.legPos(i) = 0.0;
-          ctl.legVel(i) = 0.0;
-        } else {
-          ctl.legPos(i) = reorderedPos(idx);
-          ctl.legVel(i) = reorderedVel(idx);
-        }
-      }
-
-      obs.segment(5, 10) = ctl.legPos;
-      obs.segment(15, 10) = ctl.legVel;
-
-      // past action: reorder to Simulator format and extract leg joints
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= ctl.a_simuOrder.size()) {
-          mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, ctl.a_simuOrder.size());
-          ctl.legAction(i) = 0.0;
-        } else {
-          ctl.legAction(i) = ctl.a_simuOrder(idx);
-        }
-      }
-      obs.segment(25, 10) = ctl.legAction;
-      break;
+  for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
+  {
+    int idx = ctl.usedJoints_simuOrder[i];
+    if(idx >= reorderedPos.size()) {
+      mc_rtc::log::error("Leg joint index {} out of bounds for reordered size {}", idx, reorderedPos.size());
+      ctl.legPos(i) = 0.0;
+      ctl.legVel(i) = 0.0;
+    } else {
+      ctl.legPos(i) = reorderedPos(idx);
+      ctl.legVel(i) = reorderedVel(idx);
     }
-    case 1:
-    {
-      ctl.baseAngVel_prev_prev = ctl.baseAngVel_prev;
-      ctl.baseAngVel_prev = ctl.baseAngVel;
-      ctl.baseAngVel = imu.angularVelocity();
-      obs(0) = ctl.baseAngVel.x(); //base angular vel
-      obs(1) = ctl.baseAngVel.y();
-      obs(2) = ctl.baseAngVel.z();
+  }
 
-      Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix().normalized();
-      ctl.rpy_prev_prev = ctl.rpy_prev;
-      ctl.rpy_prev = ctl.rpy;
-      ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
-      obs(3) = ctl.rpy(0);  // roll
-      obs(4) = ctl.rpy(1);  // pitch
+  obs.segment(5, 10) = ctl.legPos;
+  obs.segment(15, 10) = ctl.legVel;
 
-      Eigen::VectorXd reorderedPos = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentPos, ctl.dofNumber);
-      Eigen::VectorXd reorderedVel = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentVel, ctl.dofNumber);
-
-      ctl.legPos_prev_prev = ctl.legPos_prev;
-      ctl.legPos_prev = ctl.legPos;
-      ctl.legVel_prev_prev = ctl.legVel_prev;
-      ctl.legVel_prev = ctl.legVel;
-      ctl.legAction_prev_prev = ctl.legAction_prev;
-      ctl.legAction_prev = ctl.legAction;
-
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= reorderedPos.size()) {
-          mc_rtc::log::error("Leg joint index {} out of bounds for reordered size {}", idx, reorderedPos.size());
-          ctl.legPos(i) = 0.0;
-          ctl.legVel(i) = 0.0;
-        } else {
-          ctl.legPos(i) = reorderedPos(idx);
-          ctl.legVel(i) = reorderedVel(idx);
-        }
-      }
-
-      obs.segment(5, 10) = ctl.legPos;
-      obs.segment(15, 10) = ctl.legVel;
-
-      // past action: reorder to Simulator format and extract leg joints
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= ctl.a_simuOrder.size()) {
-          mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, ctl.a_simuOrder.size());
-          ctl.legAction(i) = 0.0;
-        } else {
-          ctl.legAction(i) = ctl.a_simuOrder(idx);
-        }
-      }
-      obs.segment(25, 10) = ctl.legAction;
-
-      // Addition for walking policy:
-      // Phase
-      if(ctl.useAsyncInference_)
-      {
-        auto currentTime = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
-        ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
-      }
-
-      obs(35) = sin(ctl.phase_);
-      obs(36) = cos(ctl.phase_);
-
-      // Command (3 elements) - [vx, vy, yaw_rate]
-      obs.segment(37, 3) = ctl.velCmdRL_;
-      break;
+  // past action: reorder to Simulator format and extract leg joints
+  for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
+  {
+    int idx = ctl.usedJoints_simuOrder[i];
+    if(idx >= ctl.a_simuOrder.size()) {
+      mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, ctl.a_simuOrder.size());
+      ctl.legAction(i) = 0.0;
+    } else {
+      ctl.legAction(i) = ctl.a_simuOrder(idx);
     }
-    case 2:
+  }
+  obs.segment(25, 10) = ctl.legAction;
+
+  // Addition for walking policy : comment if working with standing policy :
+  if (ctl.isWalkingPolicy)
+  {
+    // Phase
+    if(ctl.useAsyncInference_)
     {
-      ctl.baseAngVel_prev_prev = ctl.baseAngVel_prev;
-      ctl.baseAngVel_prev = ctl.baseAngVel;
-      ctl.baseAngVel = imu.angularVelocity();
-      obs(0) = ctl.baseAngVel.x(); //base angular vel
-      obs(1) = ctl.baseAngVel.y();
-      obs(2) = ctl.baseAngVel.z();
-
-      // Eigen::Matrix3d baseRot = robot.bodyPosW("pelvis").rotation();
-      Eigen::Matrix3d baseRot = imu.orientation().toRotationMatrix().normalized();
-      ctl.rpy_prev_prev = ctl.rpy_prev;
-      ctl.rpy_prev = ctl.rpy;
-      ctl.rpy = mc_rbdyn::rpyFromMat(baseRot);
-      obs(3) = ctl.rpy(0);  // roll
-      obs(4) = ctl.rpy(1);  // pitch
-
-      Eigen::VectorXd reorderedPos = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentPos, ctl.dofNumber);
-      Eigen::VectorXd reorderedVel = ctl.policySimulatorHandling_->reorderJointsToSimulator(ctl.currentVel, ctl.dofNumber);
-
-      ctl.legPos_prev_prev = ctl.legPos_prev;
-      ctl.legPos_prev = ctl.legPos;
-      ctl.legVel_prev_prev = ctl.legVel_prev;
-      ctl.legVel_prev = ctl.legVel;
-      ctl.legAction_prev_prev = ctl.legAction_prev;
-      ctl.legAction_prev = ctl.legAction;
-
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= reorderedPos.size()) {
-          mc_rtc::log::error("Leg joint index {} out of bounds for reordered size {}", idx, reorderedPos.size());
-          ctl.legPos(i) = 0.0;
-          ctl.legVel(i) = 0.0;
-        } else {
-          ctl.legPos(i) = reorderedPos(idx);
-          ctl.legVel(i) = reorderedVel(idx);
-        }
-      }
-
-      obs.segment(5, 10) = ctl.legPos;
-      obs.segment(15, 10) = ctl.legVel;
-
-      // past action: reorder to Simulator format and extract leg joints
-      for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-      {
-        int idx = ctl.usedJoints_simuOrder[i];
-        if(idx >= ctl.a_simuOrder.size()) {
-          mc_rtc::log::error("Past action index {} out of bounds for size {}", idx, ctl.a_simuOrder.size());
-          ctl.legAction(i) = 0.0;
-        } else {
-          ctl.legAction(i) = ctl.a_simuOrder(idx);
-        }
-      }
-      obs.segment(25, 10) = ctl.legAction;
-
-      // Phase
-      if(ctl.useAsyncInference_)
-      {
-        auto currentTime = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
-        ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
-      }
-
-      obs(35) = sin(ctl.phase_);
-      obs(36) = cos(ctl.phase_);
-
-      // Command (3 elements) - [vx, vy, yaw_rate]
-      obs.segment(37, 3) = ctl.velCmdRL_;
-
-      obs.segment(0, 3) = ctl.baseAngVel * 0.25;
-      obs.segment(3, 3) = ctl.baseAngVel_prev * 0.25;
-      obs.segment(6, 3) = ctl.baseAngVel_prev_prev * 0.25;
-      obs.segment(9, 2) = ctl.rpy.segment(0,2);
-      obs.segment(11, 2) = ctl.rpy_prev.segment(0,2);
-      obs.segment(13, 2) = ctl.rpy_prev_prev.segment(0,2);
-      obs.segment(15, 10) = ctl.legPos;
-      obs.segment(25, 10) = ctl.legPos_prev;
-      obs.segment(35, 10) = ctl.legPos_prev_prev;
-      obs.segment(45, 10) = ctl.legVel* 0.05;
-      obs.segment(55, 10) = ctl.legVel_prev* 0.05;
-      obs.segment(65, 10) = ctl.legVel_prev_prev* 0.05;
-      obs.segment(75, 10) = ctl.legAction;
-      obs.segment(85, 10) = ctl.legAction_prev;
-      obs.segment(95, 10) = ctl.legAction_prev_prev;
-      obs(105) = cos(ctl.phase_);
-      obs(106) = sin(ctl.phase_);
-      obs.segment(107, 3) = ctl.velCmdRL_;
-      break;
+      auto currentTime = std::chrono::steady_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - ctl.startPhase_);
+      ctl.phase_ = fmod(elapsed.count() * 0.001 * ctl.phaseFreq_ * 2.0 * M_PI, 2.0 * M_PI);
     }
-    default:
-    {
-      mc_rtc::log::error("Unknown policy index: {}", ctl.currentPolicyIndex);
-      break;
-    }
+
+    obs(35) = sin(ctl.phase_);
+    obs(36) = cos(ctl.phase_);
+
+    // Command (3 elements) - [vx, vy, yaw_rate]
+    obs.segment(37, 3) = ctl.velCmdRL_;
   }
   
   return obs;
@@ -361,28 +198,12 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
 {
   auto & ctl = static_cast<RLController&>(ctl_);
   bool newActionApplied = false;
-  Eigen::VectorXd fullAction;
-
-  if (action.size() == ctl.dofNumber)
-    fullAction = action;
-  else
+  if(action.size() != ctl.dofNumber)
   {
-    // construct the full action vector, setting the unused joints action to 0
-    fullAction = Eigen::VectorXd::Zero(ctl.dofNumber);
-
-    for(size_t i = 0; i < ctl.usedJoints_simuOrder.size(); ++i)
-    {
-      int idx = ctl.usedJoints_simuOrder[i];
-      if(idx >= fullAction.size()) {
-        mc_rtc::log::error("Joint index {} out of bounds for fullAction size {}", idx, fullAction.size());
-      } else if(i >= action.size()) {
-        mc_rtc::log::error("Action index {} out of bounds for action size {}", i, action.size());
-      } else {
-        fullAction(idx) = action(i); // Set leg joint action
-      }
-    }
+    mc_rtc::log::error("Action size mismatch: expected {}, got {}", ctl.dofNumber, action.size());
+    return newActionApplied;
   }
-
+      
   if(shouldRunInference_) {
     newActionApplied = true;
     // Get current observation for logging
@@ -391,16 +212,28 @@ bool utils::applyAction(mc_control::fsm::Controller & ctl_, const Eigen::VectorX
     // Update lastActions_
     ctl.a_before_vector = ctl.a_vector;
     // Run new inference and update target position
-    ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(fullAction, ctl.dofNumber);
+    ctl.a_vector = ctl.policySimulatorHandling_->reorderJointsFromSimulator(action, ctl.dofNumber);
     ctl.q_rl = ctl.q_zero_vector + ctl.a_vector;
 
     // For not controlled joints, use the zero position
-    for (size_t i = 0; i < ctl.dofNumber; ++i)
+    for(const auto & joint : ctl.notControlledJoints)
     {
-      auto it = std::find(ctl.usedJoints_mcRtcOrder.begin(), ctl.usedJoints_mcRtcOrder.end(), i);
-      if(it == ctl.usedJoints_mcRtcOrder.end())
+      auto it = std::find(ctl.mcRtcJointsOrder.begin(), ctl.mcRtcJointsOrder.end(), joint);
+      if(it != ctl.mcRtcJointsOrder.end())
       {
-        ctl.q_rl(i) = ctl.q_zero_vector(i); // Set to zero position
+        size_t idx = std::distance(ctl.mcRtcJointsOrder.begin(), it);
+        if(idx < ctl.q_rl.size())
+        {
+          ctl.q_rl(idx) = ctl.q_zero_vector(idx); // Set to zero position
+        }
+        else
+        {
+          mc_rtc::log::error("Joint {} index {} out of bounds for q_rl_vector size {}", joint, idx, ctl.q_rl.size());
+        }
+      }
+      else
+      {
+        mc_rtc::log::error("Joint {} not found in mcRtcJointsOrder", joint);
       }
     }
 
