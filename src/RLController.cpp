@@ -102,10 +102,10 @@ void RLController::initializeRobot(const mc_rtc::Configuration & config)
     [this](const mc_rbdyn::Robot & real_robot) {return createContactAnchor(real_robot);});
   
   //Initialize Constraints
-  selfCollisionConstraint->setCollisionsDampers(solver(), {1.2, 20.0});
+  selfCollisionConstraint->setCollisionsDampers(solver(), {1.2, 60.0});
   solver().removeConstraintSet(dynamicsConstraint);
   dynamicsConstraint = mc_rtc::unique_ptr<mc_solver::DynamicsConstraint>(
-    new mc_solver::DynamicsConstraint(robots(), 0, {diPercent_, dsPercent_, 0.0, 1.2, 100.0}, velPercent_, true));
+    new mc_solver::DynamicsConstraint(robots(), 0, {diPercent_, dsPercent_, 0.0, 1.2, 120.0}, velPercent_, true));
   solver().addConstraintSet(dynamicsConstraint);
 
   // Initialize Task
